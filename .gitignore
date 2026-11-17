@@ -1,0 +1,34 @@
+# Secrets & local runtime config
+webui_config.json
+.env
+*.key
+
+# Model weights, checkpoints, audio & archives
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+*.wav
+*.mp3
+*.flac
+*.zip
+*.7z
+*.tar
+*.gz
+*.log
+
+# Data, outputs & caches
+prep/
+results/
+tmp/
+colab_data/
+GPT_SoVITS/
+asmr_refs/
+*_checkpoints/
+weights_*/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+test_vocal_sob*.json
+smoke-plan.json
