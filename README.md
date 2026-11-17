@@ -32,8 +32,8 @@
 ## 绿色免安装整合包下载（开箱即用，含模型权重与环境）
 
 - **百度网盘（完整单包，推荐）**：
-  - 链接：https://pan.baidu.com/s/1137za8KO40dvHaUmXX3jjg
-  - 提取码：`pn84`
+  - 链接：https://pan.baidu.com/s/1vI6jgKQX40tND7HRgObrSw
+  - 提取码：`eu4q`
 - **GitHub Release（5 个分卷，与网盘完整包一致）**：
   - https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0
   - 下载全部 `sora_portable_v1.0.zip.001` ~ `.005` 到同一目录，右键 `.001` 用 7-Zip/Bandizip 解压即可。
