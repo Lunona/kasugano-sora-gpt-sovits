@@ -29,7 +29,18 @@
 - `audio_goal.py` / `director_archive.py` — 多模态音频目标评审与对话归档
 - `colab_bundle/` — 训练脚本（`train_condition.py`、`train_sovits.py`、`prosody_director.py`、`sovits_emotion.py`、`vocal_tokens.py`、`cross_reference.py` 等）
 
-## 快速使用
+## 绿色免安装整合包下载（开箱即用，含模型权重与环境）
+
+- **百度网盘（完整单包，推荐）**：
+  - 链接：https://pan.baidu.com/s/1137za8KO40dvHaUmXX3jjg
+  - 提取码：`pn84`
+- **GitHub Release（5 个分卷，与网盘完整包一致）**：
+  - https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0
+  - 下载全部 `sora_portable_v1.0.zip.001` ~ `.005` 到同一目录，右键 `.001` 用 7-Zip/Bandizip 解压即可。
+
+> 解压后双击根目录的 `启动穹语音生成.cmd` 启动网页端，在页面底部填入 DeepSeek（或兼容接口）API Key 即可使用。
+
+## 快速使用（源码部署）
 
 1. 安装好 GPT-SoVITS v2ProPlus 运行环境（`F:\GPT-SoVITS\app` 及对应 Python 环境），并准备好微调权重：
    - GPT 条件适配器：`v3_checkpoints/gpt_eval/phrase-adapter-epoch15.pt`
