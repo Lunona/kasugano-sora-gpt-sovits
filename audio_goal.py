@@ -10,9 +10,11 @@ from urllib.parse import urlsplit
 
 GEMINI_PROVIDER = "Google Gemini 官方"
 OPENAI_PROVIDER = "OpenAI 官方"
+ALIYUN_PROVIDER = "阿里云百炼 (Qwen-Omni)"
 JUDGE_PRESETS = {
     GEMINI_PROVIDER: ("https://generativelanguage.googleapis.com/v1beta", "gemini-3.8-flash"),
     OPENAI_PROVIDER: ("https://api.openai.com/v1", "gpt-audio-1.5"),
+    ALIYUN_PROVIDER: ("https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.8-omni-flash"),
     "自定义 OpenAI 兼容接口": ("", ""),
     "自定义 Gemini 兼容接口": ("", ""),
 }
@@ -40,6 +42,12 @@ def review_takes(paths, line, goal, *, api_key, model, provider=GEMINI_PROVIDER,
     )
     recordings = [base64.b64encode(file.read_bytes()).decode("ascii") for file in files]
     headers = {"Content-Type": "application/json"}
+    is_dashscope = (
+        provider == ALIYUN_PROVIDER
+        or "dashscope" in base.lower()
+        or "aliyuncs.com" in base.lower()
+        or ("qwen" in model.lower() and "omni" in model.lower())
+    )
     if gemini:
         parts = [{"text": prompt}]
         for index, data in enumerate(recordings, 1):
@@ -56,21 +64,45 @@ def review_takes(paths, line, goal, *, api_key, model, provider=GEMINI_PROVIDER,
     else:
         parts = [{"type": "text", "text": prompt}]
         for index, data in enumerate(recordings, 1):
+            audio_payload = f"data:audio/wav;base64,{data}" if is_dashscope else data
             parts.extend([
                 {"type": "text", "text": f"录音 {index}"},
-                {"type": "input_audio", "input_audio": {"data": data, "format": "wav"}},
+                {"type": "input_audio", "input_audio": {"data": audio_payload, "format": "wav"}},
             ])
         endpoint = f"{base}/chat/completions"
         body = {"model": model, "modalities": ["text"], "messages": [{"role": "user", "content": parts}]}
+        if is_dashscope:
+            # DashScope Qwen-Omni models require stream=True even for text-only output.
+            body["stream"] = True
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(endpoint, data=json.dumps(body).encode("utf-8"), headers=headers)
     with urllib.request.urlopen(request, timeout=90) as response:
-        result = json.load(response)
-    if gemini:
-        response_parts = result["candidates"][0]["content"]["parts"]
-        answer_text = "".join(part.get("text", "") for part in response_parts if not part.get("thought"))
-    else:
-        answer_text = result["choices"][0]["message"]["content"]
+        if not gemini and is_dashscope:
+            chunks: list[str] = []
+            for raw_line in response:
+                line_str = raw_line.decode("utf-8", errors="replace").strip()
+                if not line_str.startswith("data:"):
+                    continue
+                payload = line_str[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    evt = json.loads(payload)
+                except ValueError:
+                    continue
+                for choice in evt.get("choices") or ():
+                    delta = choice.get("delta") or {}
+                    text_part = delta.get("content")
+                    if isinstance(text_part, str):
+                        chunks.append(text_part)
+            answer_text = "".join(chunks)
+        else:
+            result = json.load(response)
+            if gemini:
+                response_parts = result["candidates"][0]["content"]["parts"]
+                answer_text = "".join(part.get("text", "") for part in response_parts if not part.get("thought"))
+            else:
+                answer_text = result["choices"][0]["message"]["content"]
     answer_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", answer_text.strip(), flags=re.IGNORECASE)
     answer = json.loads(answer_text)
     reviews = {}

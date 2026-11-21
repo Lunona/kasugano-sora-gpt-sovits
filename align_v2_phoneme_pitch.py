@@ -34,7 +34,7 @@ def estimate_pitch(audio):
 
 
 def align_phones(logits, symbols, vocab, *, vowels_only=True):
-    indices = [i for i, symbol in enumerate(symbols) if symbol in vocab]
+    indices = [i for i, symbol in enumerate(symbols) if symbol in vocab and symbol not in ("UNK", "PAD", "pau", "sil")]
     windows = [None] * len(symbols)
     if not indices:
         return windows, 0.0

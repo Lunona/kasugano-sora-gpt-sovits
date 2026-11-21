@@ -147,10 +147,17 @@ def _align_audio(audio, rate, text, plan, device):
 
 
 @torch.inference_mode()
-def check_take(path, text, plan, *, device, whisper_mode=False):
+def check_take(path, text, plan, *, device, whisper_mode=False, has_soundscape=False):
     import soundfile as sf
 
     audio, rate = sf.read(path, dtype="float32")
+    return check_dry_take(audio, rate, text, plan, device=device, whisper_mode=whisper_mode)
+
+
+@torch.inference_mode()
+def check_dry_take(audio, rate, text, plan, *, device, whisper_mode=False):
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
     if not audio.size or not np.isfinite(audio).all():
         return ["音频为空或损坏"], None
 
@@ -163,15 +170,10 @@ def check_take(path, text, plan, *, device, whisper_mode=False):
     if peak < 0.001:
         return ["音频近乎静音"], None
 
-    active = np.flatnonzero(rms > max(0.0005, peak * 0.02))
-    allowed_pause = max(1.2, max(span.get("pause_s", 0) for span in plan) + 0.7)
-    longest_gap = float(np.diff(active).max(initial=0) * hop / rate)
     issues = []
-    if longest_gap > allowed_pause:
-        issues.append(f"句中静音 {longest_gap:.1f} 秒")
-    edge = max(active[0], len(frames) - 1 - active[-1]) * hop / rate
-    if edge > 1.2:
-        issues.append(f"首尾静音 {edge:.1f} 秒")
+    active = np.flatnonzero(rms >= max(0.0008, peak * 0.035))
+    if len(active) >= 2 and (np.max(np.diff(active)) - 1) * hop / rate >= 1.5:
+        issues.append("句中连续静音超过 1.5 秒")
     if whisper_mode:
         irreg, subh, n_voiced = creak_score(audio, rate)
         # Breathy whisper naturally has some low-periodicity frames; only flag heavy creak.
@@ -183,7 +185,7 @@ def check_take(path, text, plan, *, device, whisper_mode=False):
     try:
         _, _, names, vocabulary, _, match = _align_audio(audio, rate, text, plan, device)
     except (OSError, RuntimeError, ValueError, ImportError):
-        return [], None
+        return issues, None
     # Short clips and explicit vocal effects can produce noisy phoneme estimates.
     if sum(name in vocabulary for name in names) >= 12 and match < 0.45:
         issues.append("发音序列与台词相似度偏低，可能漏读或重复")
@@ -255,10 +257,16 @@ def apply_delivery(audio, rate, text, plan, *, device="cpu"):
         wet = np.maximum(np.clip(np.abs(curves[0]) / 0.15, 0, 1), wobble_gate)
         pitched, pitch_applied = _pitch_resynthesis(audio, rate, combined, wet)
     tremble_applied = pitch_applied and bool(wobble.any())
-    result, adapted = _apply_loudness(pitched, curves[1])
+    pre_peak = float(np.abs(pitched).max())
+    eff_db = curves[1]
+    # Only gently back off positive boost when already near full-scale (>0.78) to preserve shouting power.
+    if pre_peak > 0.78 and eff_db.max() > 0.0:
+        safe_pos_max = max(1.5, 3.9 * (0.80 / pre_peak))
+        eff_db = np.where(eff_db > 0.0, np.minimum(eff_db, safe_pos_max), eff_db)
+    result, adapted = _apply_loudness(pitched, eff_db)
     result *= np.power(10.0, wobble_db * tremble_applied / 20.0)
     peak = float(np.abs(result).max())
-    headroom = min(1.0, 0.98 / max(peak, 1e-6))
+    headroom = min(1.0, 0.94 / max(peak, 1e-6))
     result *= headroom
     return result.astype(np.float32), {
         "status": "applied", "match": round(match, 3), "method": method, "requested": requested,
@@ -339,4 +347,509 @@ def apply_light_declick_deess(audio: np.ndarray, rate: int) -> np.ndarray:
         drive = np.minimum(np.maximum(0.0, sib_rms / np.maximum(body_rms, 0.005) - 0.35) * 1.8, np.maximum(0.0, (sib_rms - 0.005) / 0.010) * 1.5)
         gain_sib = 10.0 ** (-np.minimum(7.5, drive * 5.0) / 20.0)
         y = (y - sib) + sib * gain_sib
-    return np.clip(y, -0.99, 0.99).astype(np.float32)
+    return np.clip(y, -0.95, 0.95).astype(np.float32)
+
+
+def tame_loud_harshness(audio: np.ndarray, rate: int, ceiling: float = 0.94) -> np.ndarray:
+    """Dynamically tame >4.5kHz piercing sibilance on loud bursts while keeping 2.5-4.5kHz shout power intact."""
+    from scipy import signal
+    from scipy.ndimage import maximum_filter1d
+
+    y = np.asarray(audio, dtype=np.float64)
+    if y.ndim > 1 or len(y) < int(0.05 * rate):
+        return audio
+
+    # 1. Level-triggered high-sibilance smoothing (>4.5kHz only, leaving 2.5-4.5kHz shout presence full & soaring)
+    high_hz = min(10500, int(rate * 0.45))
+    if high_hz > 5000:
+        harsh = signal.sosfiltfilt(signal.butter(3, [4500, high_hz], btype="bandpass", fs=rate, output="sos"), y)
+        body = signal.sosfiltfilt(signal.butter(2, 3500, btype="lowpass", fs=rate, output="sos"), y)
+        w_env = max(5, int(0.010 * rate) | 1)
+        k_env = np.hanning(w_env)
+        k_env /= k_env.sum()
+        tot_rms = np.sqrt(np.convolve(y ** 2, k_env, mode="same") + 1e-10)
+        harsh_rms = np.sqrt(np.convolve(harsh ** 2, k_env, mode="same") + 1e-10)
+        body_rms = np.sqrt(np.convolve(body ** 2, k_env, mode="same") + 1e-10)
+
+        loud_gate = np.clip((tot_rms - 0.10) / 0.10, 0.0, 1.0)
+        excess_ratio = np.maximum(0.0, harsh_rms / np.maximum(body_rms, 0.025) - 0.22)
+        att_db = np.minimum(3.8, loud_gate * excess_ratio * 12.0)
+        gain_h = 10.0 ** (-att_db / 20.0)
+        y = (y - harsh) + harsh * gain_h
+
+    # 2. High-threshold soft-knee true-peak limiter (only touches extreme transients >0.84, keeping loud punch)
+    peak_env = maximum_filter1d(np.abs(y), size=max(3, int(0.004 * rate)))
+    k_lim = max(5, int(0.008 * rate) | 1)
+    lim_win = np.hanning(k_lim)
+    lim_win /= lim_win.sum()
+    smooth_env = np.maximum(peak_env, np.convolve(peak_env, lim_win, mode="same"))
+
+    thresh = 0.84
+    over = np.maximum(0.0, smooth_env - thresh)
+    head = max(0.04, float(ceiling) - thresh)
+    limited_env = np.where(smooth_env > thresh, thresh + (over * head) / (over + head), smooth_env)
+    gain_lim = np.divide(limited_env, smooth_env, out=np.ones_like(smooth_env), where=smooth_env > 1e-6)
+    y = y * gain_lim
+    max_abs = float(np.max(np.abs(y)))
+    if max_abs > ceiling:
+        y = y * (ceiling / max_abs)
+    return y.astype(np.float32)
+
+
+def trim_excess_silence(
+    audio: np.ndarray,
+    rate: int,
+    max_internal_s: float = 0.85,
+    target_internal_s: float = 0.45,
+    max_edge_s: float = 0.25,
+) -> tuple[np.ndarray, float]:
+    """Compress abnormal TTS dead-silence gaps (>max_internal_s) and long edge silence without cutting breath."""
+    y = np.asarray(audio, dtype=np.float32)
+    if y.ndim > 1 or y.size < int(0.4 * rate):
+        return y, 0.0
+    hop = max(1, int(0.02 * rate))
+    n_fr = len(y) // hop
+    if n_fr < 5:
+        return y, 0.0
+    frames = y[:n_fr * hop].reshape(n_fr, hop)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    peak = float(rms.max())
+    if peak < 0.002:
+        return y, 0.0
+    # Use a low threshold so soft breaths and consonant tails are preserved intact
+    sil_thresh = max(0.0008, min(0.0035, peak * 0.018))
+    active = np.flatnonzero(rms > sil_thresh)
+    if not active.size:
+        return y, 0.0
+
+    trimmed_s = 0.0
+    pad_edge = min(int(0.12 * rate), int(max_edge_s * 0.5 * rate))
+    edge_limit = int(max_edge_s * rate)
+    s_start = max(0, int(active[0]) * hop - pad_edge) if int(active[0]) * hop > edge_limit else 0
+    s_end_idx = int(active[-1] + 1) * hop
+    s_end = min(len(y), s_end_idx + pad_edge) if (len(y) - s_end_idx) > edge_limit else len(y)
+    if s_start > 0 or s_end < len(y):
+        trimmed_s += (s_start + (len(y) - s_end)) / rate
+        y = y[s_start:s_end].copy()
+
+    # Recompute frames after edge trim to compress abnormal internal dead air
+    n_fr = len(y) // hop
+    if n_fr < 10:
+        return y, round(trimmed_s, 2)
+    frames = y[:n_fr * hop].reshape(n_fr, hop)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    is_sil = rms <= sil_thresh
+    max_fr = max(4, int(round(max_internal_s / 0.02)))
+    tgt_fr = max(2, int(round(target_internal_s / 0.02)))
+    half_fr = tgt_fr // 2
+
+    keep_chunks: list[np.ndarray] = []
+    ov = min(int(0.025 * rate), half_fr * hop // 2)
+    cursor = 0
+    i = 0
+    while i < n_fr:
+        if not is_sil[i]:
+            i += 1
+            continue
+        j = i
+        while j < n_fr and is_sil[j]:
+            j += 1
+        # Only compress strictly interior dead-silence runs longer than max_fr
+        if i > 0 and j < n_fr and (j - i) > max_fr:
+            keep_left = (i + half_fr) * hop
+            keep_right = (j - (tgt_fr - half_fr)) * hop
+            if keep_right > keep_left and keep_left > cursor:
+                seg_l = y[cursor:keep_left]
+                if keep_chunks and ov > 0 and len(keep_chunks[-1]) > ov and len(seg_l) > ov:
+                    keep_chunks.append(seg_l)
+                else:
+                    keep_chunks.append(seg_l)
+                cursor = keep_right
+                trimmed_s += (keep_right - keep_left) / rate
+        i = j
+    keep_chunks.append(y[cursor:])
+    if len(keep_chunks) == 1:
+        return y, round(trimmed_s, 2)
+
+    out = keep_chunks[0].copy()
+    for nxt in keep_chunks[1:]:
+        if ov > 0 and len(out) > ov and len(nxt) > ov:
+            fade = np.linspace(0.0, 1.0, ov, dtype=np.float32)
+            comb = out[-ov:] * (1.0 - fade) + nxt[:ov] * fade
+            out = np.concatenate([out[:-ov], comb, nxt[ov:]])
+        else:
+            out = np.concatenate([out, nxt])
+    return out, round(trimmed_s, 2)
+
+
+def _apply_binaural_proximity(y48: np.ndarray, sr_out: int, ear_pan: str) -> np.ndarray:
+    """Transparent binaural ear positioning: crisp airy highs + gentle ITD/ILD without muffling."""
+    from scipy import signal
+
+    pan = (ear_pan or "off").strip().lower()
+    if pan in ("off", "none", ""):
+        return np.stack([y48, y48], axis=1)
+
+    # ASMR_0290 already has natural close-mic low end; only add a touch of >6.5kHz air so it never sounds muddy
+    high_air = signal.sosfiltfilt(signal.butter(2, 6500, btype="highpass", fs=sr_out, output="sos"), y48)
+    crisp_y = (y48 + 0.18 * high_air).astype(np.float32)
+
+    # Contralateral ear: gentle -4.5dB (0.60x), 0.29ms (14 samples) ITD, and light >7.5kHz softening (never muffled)
+    far_ear = signal.sosfiltfilt(signal.butter(1, 7500, btype="lowpass", fs=sr_out, output="sos"), crisp_y).astype(np.float32) * 0.60
+    far_delayed = np.concatenate([np.zeros(14, dtype=np.float32), far_ear[:-14]])
+
+    if pan == "left":
+        return np.stack([crisp_y, far_delayed], axis=1)
+    if pan == "right":
+        return np.stack([far_delayed, crisp_y], axis=1)
+    if pan == "alternate":
+        hop = int(0.02 * sr_out)
+        n_fr = len(crisp_y) // hop
+        fr_rms = np.array([np.sqrt(np.mean(crisp_y[i * hop:(i + 1) * hop] ** 2)) for i in range(n_fr)])
+        splits = [0]
+        i = 1
+        while i < n_fr - 1:
+            if fr_rms[i] < 0.002:
+                j = i
+                while j < n_fr and fr_rms[j] < 0.002:
+                    j += 1
+                if (j - i) * 0.02 >= 0.38:
+                    splits.append(((i + j) // 2) * hop)
+                i = j
+            else:
+                i += 1
+        splits.append(len(crisp_y))
+        left_ear = np.stack([crisp_y, far_delayed], axis=1)
+        right_ear = np.stack([far_delayed, crisp_y], axis=1)
+        out = np.zeros_like(left_ear)
+        for idx, (s0, s1) in enumerate(zip(splits[:-1], splits[1:])):
+            out[s0:s1] = left_ear[s0:s1] if idx % 2 == 0 else right_ear[s0:s1]
+        return out
+    # "center" close-mic binaural wrap (0.12ms micro-decorrelation)
+    r_micro = np.concatenate([np.zeros(6, dtype=np.float32), crisp_y[:-6]])
+    return np.stack([crisp_y, r_micro], axis=1)
+
+
+def mix_soundscape(
+    audio: np.ndarray,
+    rate: int,
+    ambient_bed: str = "none",
+    foley_mode: str = "none",
+    ambient_level: float = 0.18,
+    ear_pan: str = "off",
+    sfx_dir=None,
+) -> tuple[np.ndarray, int, dict]:
+    """Mix 32kHz mono speech into 48kHz binaural stereo with proximity ear-pan, foley, and beds."""
+    from pathlib import Path
+    import soundfile as sf
+    from scipy import signal
+
+    bed_key = (ambient_bed or "none").strip().lower()
+    foley_key = (foley_mode or "none").strip().lower()
+    pan_key = (ear_pan or "off").strip().lower()
+    if bed_key in ("none", "") and foley_key in ("none", "") and pan_key in ("off", "none", ""):
+        return audio, rate, {"bed": None, "foley": None, "foley_count": 0, "ear_pan": None}
+
+    sfx_root = Path(sfx_dir) if sfx_dir else (Path(__file__).resolve().parent / "asmr_sfx")
+    priv_root = sfx_root.parent / "asmr_sfx_private"
+
+    sr_out = 48000
+    y = np.asarray(audio, dtype=np.float32)
+    if y.ndim > 1:
+        y = y.mean(axis=1)
+    if rate != sr_out:
+        from math import gcd
+        g = gcd(int(rate), sr_out)
+        y48 = signal.resample_poly(y, sr_out // g, int(rate) // g).astype(np.float32)
+    else:
+        y48 = y.copy()
+
+    active_speech = y48[np.abs(y48) > 0.008]
+    speech_rms = float(np.sqrt(np.mean(active_speech ** 2))) if active_speech.size else 0.08
+    speech_rms = max(0.035, min(0.18, speech_rms))
+    level = float(max(0.03, min(0.55, ambient_level)))
+
+    stereo_speech = _apply_binaural_proximity(y48, sr_out, pan_key)
+    foley_count = 0
+
+    # 1. Inter-clause Foley insertion (strictly in silence gaps between sentences, never overlapping speech)
+    if foley_key == "rustle" and sfx_root.is_dir():
+        pool = sorted((sfx_root / "foley").glob("cloth_rustle_*.wav"))
+
+        def _load_foley(clip_path: Path, gain_mul: float = 1.0) -> np.ndarray:
+            clip, c_sr = sf.read(clip_path, dtype="float32")
+            if clip.ndim == 1:
+                clip = np.stack([clip, clip], axis=1)
+            if c_sr != sr_out:
+                from math import gcd
+                g = gcd(int(c_sr), sr_out)
+                clip = signal.resample_poly(clip, sr_out // g, int(c_sr) // g, axis=0).astype(np.float32)
+            c_rms = float(np.sqrt(np.mean(clip ** 2))) + 1e-8
+            target_f_rms = speech_rms * (0.20 + 0.65 * level) * gain_mul
+            return clip * min(2.5, target_f_rms / c_rms)
+
+        if pool:
+            # Find major inter-clause silence gaps (>= 0.45s, spaced >= 8.5s apart so movement is occasional, not every sentence)
+            hop = int(0.02 * sr_out)
+            n_fr = len(y48) // hop
+            fr_rms = np.array([np.sqrt(np.mean(y48[i * hop:(i + 1) * hop] ** 2)) for i in range(n_fr)])
+            voiced_idx = np.flatnonzero(fr_rms > 0.005)
+            gaps = []
+            if voiced_idx.size >= 2:
+                first_v, last_v = int(voiced_idx[0]), int(voiced_idx[-1])
+                i = first_v + 1
+                last_gap_sample = -int(9.0 * sr_out)
+                while i < last_v:
+                    if fr_rms[i] < 0.002:
+                        j = i
+                        while j < last_v and fr_rms[j] < 0.002:
+                            j += 1
+                        mid_sample = ((i + j) // 2) * hop
+                        if (j - i) * 0.02 >= 0.45 and (mid_sample - last_gap_sample) >= int(8.5 * sr_out):
+                            gaps.append((i * hop, j * hop, mid_sample))
+                            last_gap_sample = mid_sample
+                        i = j
+                    else:
+                        i += 1
+            if gaps:
+                pieces = []
+                prev = 0
+                pad = int(0.08 * sr_out)
+                max_f_len = int(0.95 * sr_out)
+                for g_idx, (g_start, g_end, _) in enumerate(gaps):
+                    pieces.append(stereo_speech[prev:g_start])
+                    pieces.append(np.zeros((pad, 2), dtype=np.float32))
+                    f_clip = _load_foley(pool[g_idx % len(pool)])[:max_f_len]
+                    pieces.append(f_clip)
+                    pieces.append(np.zeros((pad, 2), dtype=np.float32))
+                    prev = g_end
+                    foley_count += 1
+                pieces.append(stereo_speech[prev:])
+                stereo_speech = np.concatenate(pieces, axis=0)
+            elif foley_key == "rustle" and pool:
+                # Single sentence with no internal gap: add a subtle lead-in rustle
+                f_clip = _load_foley(pool[0], gain_mul=0.85)
+                pad = np.zeros((int(0.10 * sr_out), 2), dtype=np.float32)
+                stereo_speech = np.concatenate([f_clip[:int(0.85 * sr_out)], pad, stereo_speech], axis=0)
+                foley_count = 1
+
+    # 2. Continuous Ambient Bed (strictly environmental rain / bedroom only, never oral/R18 sounds)
+    bed_map = {
+        "rain": sfx_root / "beds/rain_gentle.wav",
+        "bedding": sfx_root / "beds/bedding_room.wav",
+    }
+    bed_used = None
+    if bed_key in bed_map and bed_map[bed_key].is_file():
+        bed_used = bed_key
+        bed_wav, b_sr = sf.read(bed_map[bed_key], dtype="float32")
+        if bed_wav.ndim == 1:
+            bed_wav = np.stack([bed_wav, bed_wav], axis=1)
+        pre_s = int(0.32 * sr_out)
+        post_s = int(0.48 * sr_out)
+        stereo_speech = np.concatenate(
+            [np.zeros((pre_s, 2), dtype=np.float32), stereo_speech, np.zeros((post_s, 2), dtype=np.float32)],
+            axis=0,
+        )
+        total_len = len(stereo_speech)
+        reps = (total_len // len(bed_wav)) + 2
+        bed_tiled = np.tile(bed_wav, (reps, 1))[:total_len].astype(np.float32)
+        b_rms = float(np.sqrt(np.mean(bed_tiled ** 2))) + 1e-8
+        target_b_rms = speech_rms * level * (0.85 if bed_key == "rain" else 0.72)
+        bed_tiled *= min(3.0, target_b_rms / b_rms)
+
+        # Gentle sidechain ducking (-2.2 dB when speech is active)
+        env_win = int(0.06 * sr_out)
+        sp_mono_sq = np.mean(stereo_speech ** 2, axis=1)
+        sp_env = np.sqrt(np.convolve(sp_mono_sq, np.ones(env_win) / env_win, mode="same") + 1e-12)
+        duck = np.where(sp_env > 0.010, 0.78, 1.0).astype(np.float32)
+        smooth_w = int(0.08 * sr_out)
+        duck = np.convolve(duck, np.ones(smooth_w) / smooth_w, mode="same")[:, None]
+        bed_tiled *= duck
+
+        # Smooth fade-in and fade-out on bed
+        f_in = min(total_len // 4, int(0.25 * sr_out))
+        f_out = min(total_len // 4, int(0.40 * sr_out))
+        if f_in > 0:
+            bed_tiled[:f_in] *= np.linspace(0.0, 1.0, f_in, dtype=np.float32)[:, None]
+        if f_out > 0:
+            bed_tiled[-f_out:] *= np.linspace(1.0, 0.0, f_out, dtype=np.float32)[:, None]
+        stereo_speech = stereo_speech + bed_tiled
+
+    stereo_speech = np.clip(stereo_speech, -0.98, 0.98).astype(np.float32)
+    return stereo_speech, sr_out, {
+        "bed": bed_used,
+        "foley": foley_key if foley_count else None,
+        "foley_count": foley_count,
+        "ear_pan": pan_key if pan_key not in ("off", "none", "") else None,
+    }
+
+
+_BREATH_RR: dict[str, int] = {}
+
+
+@lru_cache(maxsize=4)
+def _load_breath_manifest(breath_dir_str: str) -> dict[str, list[dict]]:
+    from pathlib import Path
+    bdir = Path(breath_dir_str)
+    mpath = bdir / "manifest.json"
+    if not mpath.is_file():
+        return {}
+    by_cat: dict[str, list[dict]] = {}
+    for item in json.loads(mpath.read_text(encoding="utf-8")):
+        cat = item.get("category")
+        if cat and (bdir / f"{item['id']}.wav").is_file():
+            by_cat.setdefault(cat, []).append(item)
+    return by_cat
+
+
+def apply_breath_intro(
+    wav: np.ndarray,
+    rate: int,
+    text: str,
+    plan: list[dict],
+    *,
+    breath_dir=None,
+    whisper_mode: bool = False,
+) -> tuple[np.ndarray, str | None]:
+    """Prepend an ear-verified physical Sora breath/sob intro for dramatic openings without re-training."""
+    import re
+    from pathlib import Path
+    import soundfile as sf
+
+    if not plan or len(wav) < int(0.45 * rate):
+        return wav, None
+    if re.search(r"<(?:oral|breath|sob|gasp|pant)>", text or ""):
+        return wav, None
+    # If the utterance begins directly with a choked nasal/labial struggle sound (e.g. んぶっ), let it breathe natively
+    if re.match(r"^[…‥\s　]*[んン][ぶぷむば]", text or ""):
+        return wav, None
+
+    first = plan[0]
+    emo = first.get("primary") or "neutral"
+    deliv = first.get("delivery") or "plain"
+    inten = float(first.get("intensity", 0.5) or 0.5)
+    has_lead_ellipsis = bool(re.match(r"^[…‥\s　]+", text or ""))
+
+    cat = None
+    if deliv == "tearful" or first.get("event") == "sob" or (emo == "hurt" and inten >= 0.68):
+        cat = "sob_catch"
+    elif deliv == "startled" or (emo in ("fear", "surprise") and inten >= 0.70):
+        cat = "inhale_tense"
+    elif (has_lead_ellipsis and emo in ("shy", "tender", "hurt", "fear", "resolve") and inten >= 0.45) or (whisper_mode and inten >= 0.40):
+        cat = "sigh_gentle" if (emo in ("tender", "neutral") and deliv in ("soft", "restrained") and not whisper_mode) else "inhale_soft"
+
+    if not cat:
+        return wav, None
+
+    bdir = Path(breath_dir) if breath_dir else (ROOT / "sr_breath_tokens")
+    by_cat = _load_breath_manifest(str(bdir))
+    pool = by_cat.get(cat) or by_cat.get("inhale_soft")
+    if not pool:
+        return wav, None
+
+    # Locate speech and lower-level breath separately on 20 ms RMS frames.
+    frame = max(1, rate // 50)
+    frames = wav[:len(wav) // frame * frame].reshape(-1, frame)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    speech_level = float(np.percentile(rms, 90))
+    speech_frames = np.flatnonzero(rms >= max(0.006, speech_level * 0.24))
+    if not len(speech_frames):
+        return wav, None
+    first_speech = int(speech_frames[0])
+    onset = first_speech * frame
+    lead = rms[:max(0, first_speech - 2)]
+    if np.count_nonzero(lead >= max(0.0015, speech_level * 0.035)) >= 4:
+        return wav, None
+
+    rr_idx = _BREATH_RR.get(cat, 0) % len(pool)
+    _BREATH_RR[cat] = rr_idx + 1
+    chosen = pool[rr_idx]
+    b_wav, b_sr = sf.read(str(bdir / f"{chosen['id']}.wav"), dtype="float32")
+    if b_wav.ndim > 1:
+        b_wav = b_wav.mean(axis=1)
+    if int(b_sr) != int(rate):
+        g = gcd(int(b_sr), int(rate))
+        b_wav = resample_poly(b_wav, int(rate) // g, int(b_sr) // g).astype(np.float32)
+
+    active_samples = wav[np.abs(wav) > 0.012]
+    speech_rms = float(np.sqrt(np.mean(active_samples ** 2))) if len(active_samples) > 100 else 0.08
+    b_rms = float(np.sqrt(np.mean(b_wav ** 2))) + 1e-8
+    target_b_rms = float(np.clip(speech_rms * (0.28 if whisper_mode else 0.34), 0.006, 0.028))
+    b_wav = (b_wav * (target_b_rms / b_rms)).astype(np.float32)
+    b_peak = float(np.max(np.abs(b_wav)))
+    if b_peak > 0.14:
+        b_wav = b_wav * (0.14 / b_peak)
+
+    fade = min(int(0.025 * rate), len(b_wav) // 4)
+    if fade > 0:
+        ramp = 0.5 * (1.0 - np.cos(np.linspace(0, np.pi, fade, dtype=np.float32)))
+        b_wav[:fade] *= ramp
+        b_wav[-fade:] *= ramp[::-1]
+
+    lead_trim = max(0, onset - int(0.055 * rate))
+    speech_tail = wav[lead_trim:].astype(np.float32)
+    gap = np.zeros(int(0.045 * rate), dtype=np.float32)
+    out = np.concatenate([b_wav, gap, speech_tail]).astype(wav.dtype, copy=False)
+    return out, chosen["id"]
+
+
+def score_take_expressiveness(wav_path, plan: list[dict], *, whisper_mode=False) -> dict:
+    """Measure F0 span and vocal energy dynamics relative to plan intensity so expressive takes win ties."""
+    import soundfile as sf
+    w, sr = sf.read(str(wav_path), dtype="float32")
+    return score_dry_expressiveness(w, sr, plan, whisper_mode=whisper_mode)
+
+
+def score_dry_expressiveness(w, sr, plan, *, whisper_mode=False):
+    from align_v2_phoneme_pitch import estimate_pitch
+
+    if len(w) < sr // 100:
+        return {"expr_score": 0.0, "f0_med": 0.0, "f0_range": 0.0, "rms_dyn_db": 0.0}
+    if w.ndim > 1:
+        w = w.mean(axis=1)
+    if int(sr) != 32000:
+        g = gcd(int(sr), 32000)
+        w32 = resample_poly(w, 32000 // g, int(sr) // g).astype(np.float32)
+    else:
+        w32 = w.astype(np.float32)
+
+    pinfo = estimate_pitch(w32)
+    voiced = pinfo["f0_hz"][pinfo["voiced"]]
+    f0_med = float(np.median(voiced)) if len(voiced) else 300.0
+    f0_range = float(np.percentile(voiced, 90) - np.percentile(voiced, 10)) if len(voiced) >= 5 else 120.0
+
+    hop = 320
+    nf = max(1, len(w32) // hop)
+    frms = np.sqrt(np.mean(w32[: nf * hop].reshape(nf, hop) ** 2, axis=1) + 1e-12)
+    active = frms[frms > max(0.008, float(np.percentile(frms, 90)) * 0.12)]
+    if len(active) >= 4:
+        db = 20.0 * np.log10(active + 1e-6)
+        rms_dyn_db = float(np.percentile(db, 95) - np.percentile(db, 25))
+    else:
+        rms_dyn_db = 8.0
+
+    best_sp = max(plan, key=lambda s: float(s.get("intensity", 0.5)), default={}) if plan else {}
+    peak_int = float(best_sp.get("intensity", 0.5))
+    main_emo = best_sp.get("primary") or "neutral"
+
+    if whisper_mode:
+        # F0 estimates are unreliable for near-unvoiced delivery.
+        dyn_fit = max(0.0, 1.0 - abs(rms_dyn_db - 8.0) / 16.0)
+        expr = 0.55 + 0.45 * dyn_fit
+    elif main_emo in ("anger", "hurt", "fear", "surprise", "impatient") or peak_int >= 0.65:
+        range_fit = min(1.0, f0_range / 360.0)
+        dyn_fit = min(1.0, rms_dyn_db / 22.0)
+        reg_fit = min(1.0, max(0.0, (f0_med - 220.0) / 240.0))
+        expr = 0.55 * range_fit + 0.25 * dyn_fit + 0.20 * reg_fit
+    else:
+        range_fit = min(1.0, f0_range / 230.0)
+        dyn_fit = min(1.0, rms_dyn_db / 18.0)
+        soft_fit = 1.0 if f0_med <= 390.0 else max(0.3, 1.0 - (f0_med - 390.0) / 250.0)
+        expr = 0.50 * range_fit + 0.25 * dyn_fit + 0.25 * soft_fit
+
+    return {
+        "expr_score": round(float(np.clip(expr, 0.0, 1.0)), 4),
+        "f0_med": round(f0_med, 1),
+        "f0_range": round(f0_range, 1),
+        "rms_dyn_db": round(rms_dyn_db, 1),
+    }

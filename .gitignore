@@ -22,9 +22,17 @@ webui_config.json
 prep/
 results/
 tmp/
+TEMP/
+director.sqlite3/
+ref_profiles.json
 colab_data/
 GPT_SoVITS/
 asmr_refs/
+asmr_sfx/
+asmr_sfx_private/
+sr_oral_tokens/
+sr_breath_tokens/
+ui_assets/
 *_checkpoints/
 weights_*/
 __pycache__/

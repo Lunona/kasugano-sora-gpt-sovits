@@ -1,56 +1,64 @@
-# 春日野穹 GPT-SoVITS 表演向语音合成（AI 导演 + 贴耳轻语控制）
+# 春日野穹 GPT-SoVITS 表演向语音合成（AI 导演 + 贴耳轻语 + 多模态自迭代）
 
-基于 GPT-SoVITS v2ProPlus 的角色表演向日语语音合成项目，支持 **DeepSeek / OpenAI 兼容 / Ollama** 自动情绪导演、句内多情绪分段控制、自适应声学限幅、以及 Demucs 洗净训练的 **ASMR 贴耳轻语模式**。
+基于 **GPT-SoVITS v2ProPlus** 的春日野穹（《缘之空》）表演向日语语音合成项目，集成了 **DeepSeek AI 配音导演**、**阿里云千问 / Gemini / OpenAI 音频审听闭环**、**48kHz 双声道 ASMR 贴耳音景** 以及 **本地自优化微调引擎**。
+
+---
 
 ## 核心特性
 
-1. **AI 配音导演规划（`performance.py`）**
-   - 自动将长台词切分并结合上下文（`context`）逐段分配主/次情绪、权重、强度、停顿（`pause_s`）、发声方式（`delivery`）与独立拟声事件（`<breath>`、`<gasp>`、`<sob>`、`<laugh>` 等）。
-   - 支持**超长台词自动分批规划与无缝拼接**，无 300 字 / 8 分段限制。
-   - 支持 **DeepSeek 自动联动控制**：识别到贴耳/睡前低语场景时自动开启轻语模式与轻度去刺耳；规划出局部颤音（`tremble_strength`）或局部重音/音高变化时自动启用局部声学后处理。
+1. **AI 配音导演工作流（`performance.py` / `webui_sora.py`）**
+   - **实时流式导演讨论**：支持在对话区与导演实时推敲台词、语气与潜台词，支持流式输出与一键定稿；搭配 `sora_persona.md` 角色表演档案，保持穹的性格、语感与口吻一致。
+   - **中文台词自动地道化**：自动将中文输入改写为贴合角色习惯的日语口语，拒绝生硬机翻。
+   - **句内多情绪分段规划**：自动按停顿切分台词并分配主/次情绪、权重、强度、停顿时长（`pause_s`）、发声方式（`delivery`）与局部韵律提示；支持超长独白分批规划与稳态拼接，纯喘息短段自动并入实词上下文。
+   - **43 档全年龄声学画像选角**：结合语速（字/秒）与 F0 音高跨度筛选最匹配的参考音频（支持本地规则与 DeepSeek 语义排序）。
 
-2. **自适应声学控制引擎与防劈音限幅（`synthesize.py`）**
-   - 基于参考音频轻柔度（`REF_SOFTNESS`）对负向能量/音高偏置做**连续衰减**，并按维度（情绪、音高、能量、韵律静音概率）独立限幅，防止“轻语参考 + 负向控制向量”双重叠加压坏声带。
-   - **贴耳轻语模式（ASMR）**：自动切换 Demucs 洗净后的 ASMR SoVITS 权重（`epoch5`）与低气泡音参考（`ASMR_0290`），普通模式则使用 `epoch25` + `SR011455` 保持稳定张力。
+2. **导演自动声效与 48kHz 双声道音景（`synthesize.py` / `acoustic_delivery.py`）**
+   - **贴耳轻语模式（ASMR）**：支持自动或手动切换 Demucs 洗净训练的 ASMR SoVITS 权重（`epoch5`）与低气泡音参考（`ASMR_0290`）；常规模式使用高清晰度 `epoch25` + 连续防劈音限幅（`REF_SOFTNESS`）。
+   - **自动轻度去刺耳（De-click + De-ess）**：导演在贴耳轻语或密集喘息/气口场景下自动启用，柔化高频气沙与清辅音尖刺，保留元音自然质感。
+   - **48kHz 双声道音景混音**：支持人头麦贴耳方位（正中 / 左耳 / 右耳 / 左右耳交替）与窗外微雨背景音，导演可根据语境自动调节雨声音量比例（`0.08 ~ 0.32`）。
 
-3. **后处理与自动质检（`acoustic_delivery.py`）**
-   - 可选**轻度 De-clicker + 动态 De-esser**（`apply_light_declick_deess`）：柔和压平清辅音高频尖刺，保留元音与气声。
-   - `check_take` 自动检测长静音、音素对齐度及轻语模式下的异常气泡音/卡顿，配合候选队列自动切换下一条更稳的版本。
+3. **多模态音频目标审听闭环（`audio_goal.py`）**
+   - 开启「目标模式」后，可将生成的 `.wav` 直接送给 **阿里云百炼 `qwen3.8-omni-flash`**（内置 SSE 流式支持）、Google Gemini 或 OpenAI Audio 进行真人级听感打分与逐轮改进，直到达到目标要求。
 
-4. **WebUI 交互界面（`webui_sora.py`）**
-   - 支持中文自动转穹口吻日语台词、导演对话讨论定稿、多轮试听评审闭环（`audio_goal.py`）、历史归档（`director_archive.py`）及端口被占用自动顺延。
+4. **质检与本地自优化升级（`self_optimize.py` / `director_archive.py`）**
+   - `check_take` 自动检测台词对齐度、情绪张力与异常静音；
+   - 支持标记「满意样本 / 错题反馈」，一键在本地微调韵律导演与 GPT 表现力适配器，并保留出厂备份随时回滚。
+
+---
 
 ## 目录结构（源码）
 
-- `webui_sora.py` — Gradio WebUI 主程序
-- `synthesize.py` — 推理引擎、自适应控制限幅与 SoVITS 权重热切换
+- `webui_sora.py` — Gradio WebUI 主程序（浅/深色清透主题、独立生成进度条、对话归档）
+- `synthesize.py` — 推理引擎、自适应控制限幅、分段合并与 SoVITS 权重热切换
 - `performance.py` — 情绪特征编码、DeepSeek / Ollama 导演规划与参考排序
-- `acoustic_delivery.py` — 局部音高/响度/颤声、轻度 De-click/De-ess 与 `check_take` 质检
-- `audio_goal.py` / `director_archive.py` — 多模态音频目标评审与对话归档
-- `colab_bundle/` — 训练脚本（`train_condition.py`、`train_sovits.py`、`prosody_director.py`、`sovits_emotion.py`、`vocal_tokens.py`、`cross_reference.py` 等）
+- `acoustic_delivery.py` — 局部音高/响度/颤声后处理、轻度 De-click/De-ess、48kHz 音景与 `check_take` 质检
+- `audio_goal.py` — 多模态音频目标评审（支持阿里云百炼 Qwen-Omni SSE / Gemini / OpenAI）
+- `self_optimize.py` / `director_archive.py` — 历史记录数据库、错题统计与本地权重微调/回滚
+- `sora_persona.md` — 春日野穹角色性格与日语配音表演基准档案
+- `colab_bundle/` — 训练与对齐脚本（`train_condition.py`、`train_sovits.py`、`prosody_director.py`、`sovits_emotion.py`、`vocal_tokens.py`、`cross_reference.py` 等）
 
-## 绿色免安装整合包下载（开箱即用，含模型权重与环境）
+---
 
-- **百度网盘（完整单包，推荐）**：
-  - 链接：https://pan.baidu.com/s/1vI6jgKQX40tND7HRgObrSw
-  - 提取码：`eu4q`
-- **GitHub Release（5 个分卷，与网盘完整包一致）**：
-  - https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0
-  - 下载全部 `sora_portable_v1.0.zip.001` ~ `.005` 到同一目录，右键 `.001` 用 7-Zip/Bandizip 解压即可。
+## 绿色免安装整合包（推荐普通用户）
 
-> 解压后双击根目录的 `启动穹语音生成.cmd` 启动网页端，在页面底部填入 DeepSeek（或兼容接口）API Key 即可使用。
+整合包已内置 Python 环境、GPT-SoVITS 预训练底模、微调权重、音素对齐模型、43 档全年龄参考音与 ASMR 参考：
+
+- 解压后双击根目录 **`启动穹语音生成.cmd`** 即可自动打开浏览器界面；
+- 在网页底部「API 设置」填入 DeepSeek（或 OpenAI 兼容接口）API Key 即可开始使用（如需目标模式自动审听，可配阿里云百炼 `qwen3.8-omni-flash` Key）。
+
+---
 
 ## 快速使用（源码部署）
 
-1. 安装好 GPT-SoVITS v2ProPlus 运行环境（`F:\GPT-SoVITS\app` 及对应 Python 环境），并准备好微调权重：
-   - GPT 条件适配器：`v3_checkpoints/gpt_eval/phrase-adapter-epoch15.pt`
+1. 准备 GPT-SoVITS v2ProPlus 运行环境（`F:\GPT-SoVITS\app` 及对应 Python 环境），并放置微调权重与辅助文件：
+   - GPT 条件适配器：`v3_checkpoints/gpt_eval/phrase-adapter-epoch15-ft1.pt`
    - 常规 SoVITS：`v3_bs16_checkpoints/sovits_eval/sora-sovits-v2proplus-epoch25.pth`
    - ASMR 轻语 SoVITS（可选）：`v3_asmr_clean_checkpoints/sora-sovits-v2proplus-epoch5.pth` 与参考 `asmr_refs/ASMR_0290.wav`（及 `.wav.pt`）
+   - 音素对齐模型：`tmp/japanese-hubert-base-phoneme-ctc-v4/`
 2. 启动 WebUI：
    ```powershell
    python webui_sora.py
    ```
-   或双击 `启动穹语音生成.cmd`（按本机环境路径调整）。
-3. 在网页底部填写 DeepSeek（或其他 OpenAI 兼容接口）API Key，输入中文或日语台词即可生成试听。
+   或按本机路径修改后运行 `启动穹语音生成.cmd`（支持通过环境变量 `SORAVOICE_PYTHON`、`SORAVOICE_APP`、`SORAVOICE_DATA`、`SORAVOICE_ASMR_DATA` 自定义路径）。
 
-> 注：本仓库仅托管源码与训练脚本；完整绿色免安装整合包（约 7.9 GB）及模型权重因超出 GitHub 单文件限制未直接放入仓库。
+> 注：本仓库仅托管源码、角色档案与训练脚本；模型权重、音频素材及约 9.3 GB 绿色免安装整合包未直接提交到 Git 仓库。

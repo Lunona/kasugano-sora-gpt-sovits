@@ -1,11 +1,14 @@
 """Japanese phrase conditioning for the existing GPT-SoVITS v2 semantic decoder."""
 import difflib
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
 import re
 import sys
+from time import perf_counter
 import urllib.request
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 APP = Path(os.environ.get("SORAVOICE_APP", "F:/GPT-SoVITS/app"))
@@ -69,18 +72,27 @@ def validate(text, plan):
     if not text.strip() or "\n" in text or len(text)>10000 or len(plan)<1:
         raise ValueError("Expected non-empty text without newlines and at least 1 contiguous span")
     cursor = 0
-    for span in plan:
-        if (span["start"]!=cursor or not cursor<span["end"]<=len(text)
-                or not text[cursor:span["end"]].strip()):
-            raise ValueError("Spans must cover the original text exactly")
-        for key in ("primary","secondary"):
+    for number, span in enumerate(plan, 1):
+        if not isinstance(span, dict):
+            raise ValueError(f"第 {number} 段必须是 JSON 对象")
+        required = ("start", "end", "primary", "secondary", "intensity", "pause_s")
+        missing = [key for key in required if key not in span]
+        if missing:
+            raise ValueError(f"第 {number} 段缺少字段：{', '.join(missing)}")
+        start, end = span["start"], span["end"]
+        if (type(start) is not int or type(end) is not int or start != cursor
+                or not start < end <= len(text) or not text[start:end].strip()):
+            raise ValueError(f"第 {number} 段的 start/end 无效：需要从字符 {cursor} 开始，且不能超出台词")
+        for key in ("primary", "secondary"):
             if span[key] is not None and span[key] not in EMOTIONS:
-                raise ValueError(f"Unknown emotion {span[key]!r}")
-        if not 0<=span["intensity"]<=1 or not 0<=span["pause_s"]<=1:
-            raise ValueError("Invalid intensity or pause")
-        cursor=span["end"]
-    if cursor!=len(text):
-        raise ValueError("Missing text at end of plan")
+                raise ValueError(f"第 {number} 段的 {key} 情绪无效：{span[key]!r}")
+        for key in ("intensity", "pause_s"):
+            val = span[key]
+            if type(val) not in (int, float) or not 0 <= val <= 1:
+                raise ValueError(f"第 {number} 段的 {key} 必须是 0 到 1 之间的数字")
+        cursor = end
+    if cursor != len(text):
+        raise ValueError(f"分段只覆盖到字符 {cursor}，请输入完整台词的分段")
 
 def phone_span_owners(text, plan):
     validate(text,plan)
@@ -166,6 +178,23 @@ def install(decoder, channels=CHANNELS):
 def load_annotations():
     p=DATA/"整句表演标注"/"整句表演标注.jsonl"
     return {r["id"]:r for r in map(json.loads,p.read_text(encoding="utf-8").splitlines())}
+
+@lru_cache(maxsize=1)
+def _reference_texts(path, signature):
+    rows = map(json.loads, path.read_text(encoding="utf-8").splitlines())
+    return {row["id"]: row["text_ja"] for row in rows}
+
+
+@lru_cache(maxsize=256)
+def _reference_phones(text):
+    return tuple(phones(text))
+
+
+def reference_phones(ref_id):
+    path = DATA / "整句表演标注" / "整句表演标注.jsonl"
+    stat = path.stat()
+    return _reference_phones(_reference_texts(path, (stat.st_mtime_ns, stat.st_size, stat.st_ino))[ref_id])
+
 
 PHRASE_OVERRIDES=json.loads((ROOT/"phrase-overrides.json").read_text(encoding="utf-8-sig"))
 
@@ -316,7 +345,33 @@ def plan_with_ollama(text, context):
         plan=json.loads(json.load(result)["response"])["segments"]
     return _finalize_director_plan(text, cuts, plan)
 
-def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120):
+def report_director_usage(operation, model, usage, started, *, first_content=None):
+    usage = usage if isinstance(usage, dict) else {}
+    details = usage.get("prompt_tokens_details")
+    details = details if isinstance(details, dict) else {}
+    hit = usage.get("prompt_cache_hit_tokens", details.get("cached_tokens"))
+    miss = usage.get("prompt_cache_miss_tokens")
+    prompt = usage.get("prompt_tokens")
+    if type(miss) is not int and type(prompt) is int and type(hit) is int:
+        miss = max(0, prompt - hit)
+    rate = None
+    if type(hit) is int and type(miss) is int and hit + miss > 0:
+        rate = round(hit / (hit + miss), 4)
+    metrics = {
+        "operation": operation, "model": model, "prompt_tokens": prompt,
+        "cache_hit_tokens": hit, "cache_miss_tokens": miss, "cache_hit_rate": rate,
+        "completion_tokens": usage.get("completion_tokens"),
+        "seconds": round(perf_counter() - started, 3),
+    }
+    if first_content is not None:
+        metrics["first_content_seconds"] = round(first_content - started, 3)
+    try:
+        print("[导演 API] " + json.dumps(metrics, ensure_ascii=False), flush=True)
+    except (OSError, UnicodeError):
+        pass
+
+
+def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120, operation="导演请求"):
     import time
     import urllib.error
 
@@ -347,9 +402,11 @@ def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, ti
     )
     last_exc = None
     for attempt in range(3):
+        started = perf_counter()
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = json.loads(response.read().decode("utf-8"))
+            report_director_usage(operation, mdl, body.get("usage") if isinstance(body, dict) else None, started)
             content = body["choices"][0]["message"]["content"]
             if not isinstance(content, str):
                 raise ValueError("Missing JSON content")
@@ -368,15 +425,141 @@ def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, ti
             raise last_exc
 
 
+def _extract_partial_json_reply(buf: str) -> str | None:
+    """Incrementally unescape the string value of `"reply"` from a partial JSON buffer."""
+    m = re.search(r'"reply"\s*:\s*"', buf)
+    if not m:
+        return None
+    i = m.end()
+    out = []
+    n = len(buf)
+    while i < n:
+        ch = buf[i]
+        if ch == '"':
+            break
+        if ch == "\\":
+            if i + 1 >= n:
+                break
+            nxt = buf[i + 1]
+            esc = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+            if nxt in esc:
+                out.append(esc[nxt])
+                i += 2
+            elif nxt == "u":
+                if i + 6 > n:
+                    break
+                try:
+                    out.append(chr(int(buf[i + 2 : i + 6], 16)))
+                except ValueError:
+                    break
+                i += 6
+            else:
+                out.append(nxt)
+                i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120):
+    """Stream SSE chunks from DeepSeek JSON mode, yielding (partial_reply, None) then (full_reply, parsed_dict)."""
+    key = api_key or os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("DEEPSEEK_API_KEY is not set")
+    url = (base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")).rstrip("/")
+    if not url.endswith("/chat/completions"):
+        url += "/chat/completions"
+    mdl = model or os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    payload = {
+        "model": mdl,
+        "temperature": 0.1,
+        "stream": True,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    if urlsplit(url).hostname == "api.deepseek.com":
+        payload["stream_options"] = {"include_usage": True}
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+            "Connection": "close",
+        },
+    )
+    started = perf_counter()
+    first_content = None
+    usage = None
+    buf = []
+    last_partial = ""
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            for raw_line in response:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    if isinstance(chunk, dict) and chunk.get("usage") is not None:
+                        usage = chunk["usage"]
+                    delta = chunk["choices"][0]["delta"].get("content") or ""
+                except (ValueError, KeyError, IndexError, TypeError):
+                    continue
+                if delta:
+                    if first_content is None:
+                        first_content = perf_counter()
+                    buf.append(delta)
+                    partial = _extract_partial_json_reply("".join(buf))
+                    if partial is not None and partial != last_partial:
+                        last_partial = partial
+                        yield partial, None
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", "".join(buf).strip(), flags=re.IGNORECASE)
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("reply"), str):
+            raise ValueError("Missing reply in streamed JSON")
+        report_director_usage("导演讨论", mdl, usage, started, first_content=first_content)
+        yield parsed["reply"].strip(), parsed
+    except Exception:
+        parsed = deepseek_json(system, prompt, api_key=api_key, base_url=base_url, model=model, timeout=timeout, operation="导演讨论回退")
+        reply = parsed["reply"].strip() if isinstance(parsed.get("reply"), str) else ""
+        yield reply, parsed
+
+
+def load_sora_persona() -> str:
+    """Load the live Kasugano Sora character & voice-acting guide from sora_persona.md if present."""
+    path = ROOT / "sora_persona.md"
+    if not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def plan_with_deepseek(text, context="", api_key=None, base_url=None, model=None):
     from math import isfinite
 
     cuts, chunks = _split_director_chunks(text)
+    persona = load_sora_persona()
     system_prompt = (
         "你是只输出合法JSON的日语配音导演，严禁输出任何多余解释文字。"
-        "在 segments 同级额外给出 emo_scale（正数，1.0为正常倍率，轻声或克制可降低）和 whisper_mode（布尔值）。"
+        "在 segments 同级额外给出 emo_scale（正数，1.0为正常倍率，轻声或克制可降低）、whisper_mode（布尔值）、"
+        "declick_deess（布尔值，是否开启轻度去刺耳柔化高频气沙与尖刺）、"
+        "ambient_bed（环境底景，可选 \"none\"、\"rain\" 窗外雨声）。"
+        "当 ambient_bed 为 \"rain\" 时，可额外给出 ambient_level（0.08~0.32 浮点数，轻声耳语配微雨用 0.08~0.14，普通雨夜用 0.16~0.22，大雨渲染用 0.24~0.30）。"
         "如果是贴耳轻语、睡前低语、撒娇私语等近麦 ASMR 场景，将 whisper_mode 设为 true，否则设为 false。"
+        "当台词包含较多喘息叹气（「はぁ」「ふぅ」「あっ」「んっ」）、密集气口、哭腔或贴耳轻语，需要柔化气噪与清辅音尖刺时，将 declick_deess 设为 true，否则设为 false。"
     )
+    if persona:
+        system_prompt += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
     batch_size = 20
     if len(chunks) <= 25:
         batch_ranges = [(0, len(chunks))]
@@ -386,6 +569,9 @@ def plan_with_deepseek(text, context="", api_key=None, base_url=None, model=None
     all_segments = []
     scales = []
     whisper_votes = []
+    deess_votes = []
+    bed_votes = []
+    bed_levels = []
     prev_tail = None
     for start_idx, end_idx in batch_ranges:
         sub_chunks = chunks[start_idx:end_idx]
@@ -398,7 +584,7 @@ def plan_with_deepseek(text, context="", api_key=None, base_url=None, model=None
             resp = deepseek_json(
                 system_prompt,
                 _director_prompt(sub_chunks, batch_ctx),
-                api_key=api_key, base_url=base_url, model=model,
+                api_key=api_key, base_url=base_url, model=model, operation="表演规划",
             )
             segs = resp.get("segments")
             if isinstance(segs, list) and len(segs) == len(sub_chunks):
@@ -416,29 +602,49 @@ def plan_with_deepseek(text, context="", api_key=None, base_url=None, model=None
             scales.append(float(sc))
         if isinstance(response.get("whisper_mode"), bool):
             whisper_votes.append(response["whisper_mode"])
+        if isinstance(response.get("declick_deess"), bool):
+            deess_votes.append(response["declick_deess"])
+        if response.get("ambient_bed") == "rain":
+            bed_votes.append(response["ambient_bed"])
+            al = response.get("ambient_level")
+            if type(al) in (int, float) and isfinite(al):
+                bed_levels.append(max(0.06, min(0.35, float(al))))
 
     plan = _finalize_director_plan(text, cuts, all_segments)
     if scales:
         plan[0]["director_emo_scale"] = round(sum(scales) / len(scales), 2)
     if any(whisper_votes):
         plan[0]["director_whisper_mode"] = True
+    if deess_votes:
+        plan[0]["director_declick_deess"] = any(deess_votes)
+    if bed_votes:
+        plan[0]["director_ambient_bed"] = bed_votes[0]
+    if bed_levels:
+        plan[0]["director_ambient_level"] = round(sum(bed_levels) / len(bed_levels), 2)
     return plan
 
 
 
 def rank_references_with_deepseek(text, context, plan, candidates, *, count, api_key, base_url, model):
     data = {"text": text, "context": context, "plan": plan, "references": candidates, "count": count}
-    result = deepseek_json(
+    persona = load_sora_persona()
+    sys_prompt = (
         "你是日语配音选角导演。根据完整台词、前情和所有片段的主次情绪及权重，决定整句的表演方向和参考音频。"
         "写一句话概括整句情绪如何混合和变化。参考要能支撑整句话，避免围绕单一高强度片段选取。"
         "例如扭捏可以是开头克制嘴硬、中途故作自然、句尾露出害羞，不必概括为迟疑。"
-        "素材只有文字和历史标注，你没有听到原声或生成结果。历史语气标注可能有误，只能作为弱线索。"
+        "素材只有文字、声学画像(acoustic_profile)和历史标注，你没有听到原声。历史语气标注可能有误，只能作为弱线索；"
+        "请重点参考 acoustic_profile 里的实测语速(快/中/慢字/s)与 F0 音高跨度：慢速低落/委屈长句务必选语速慢或中且情绪相符的参考，切忌用快嘴吵架参考去配慢悲剧。"
         "优先考虑台词在做什么（例如否认、找借口、掩饰关心）、情绪强度及节奏适配。"
         "不用迎合旧标签，不要从标点断言音频有结巴、颤声或具体停顿。"
         '只输出 JSON：{"overview":"中文概括整句演法","ranking":[{"id":"候选编号","reason":"中文简述适用理由或风险"}]}。'
-        "按适配度列出恰好 count 个不同候选，禁止添加未提供的编号。先给整句首选，再给有明确区别的备选。",
+        "按适配度列出恰好 count 个不同候选，禁止添加未提供的编号。先给整句首选，再给有明确区别的备选。"
+    )
+    if persona:
+        sys_prompt += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
+    result = deepseek_json(
+        sys_prompt,
         json.dumps(data, ensure_ascii=False),
-        api_key=api_key, base_url=base_url, model=model,
+        api_key=api_key, base_url=base_url, model=model, operation="参考音排序",
     )
     overview = result["overview"]
     if not isinstance(overview, str) or not overview.strip():

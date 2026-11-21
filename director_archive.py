@@ -2,12 +2,37 @@
 
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+
+
+def _clean_one_line(text: str, limit: int = 36) -> str:
+    if not text:
+        return ""
+    s = re.sub(r"<[a-z_]+>", "", text)
+    s = " ".join(s.split())
+    return (s[:limit] + "…") if len(s) > limit else s
+
+
+def _kind_badge(kind: str) -> str:
+    if "满意" in kind:
+        return "✅ 满意样本"
+    if "标记错误" in kind:
+        return "❌ 错题反馈"
+    if "主选" in kind:
+        return "⭐ 主选"
+    if "备选" in kind:
+        return "🎵 备选"
+    if "异常" in kind:
+        return "⚠️ 试音异常"
+    if "评审" in kind:
+        return "🎯 评审"
+    return f"📝 {kind}"
 
 
 class DirectorArchive:
@@ -96,21 +121,51 @@ class DirectorArchive:
             db.execute("INSERT INTO events (chat_id,created,kind,audio,ja,zh,detail) VALUES (?,?,?,?,?,?,?)",
                        (chat_id, self._now(), kind, str(audio) if audio else None, ja, zh, detail))
 
-    def list_events(self, *, audio_only=False, chat_id=None):
+    def _query_events(self, *, audio_only=False, main_only=False, chat_id=None):
         conditions, args = [], []
-        if audio_only:
+        if main_only:
+            conditions.append("audio IS NOT NULL AND kind='主选音频'")
+        elif audio_only:
             conditions.append("audio IS NOT NULL")
         if chat_id:
             conditions.append("chat_id=?")
             args.append(chat_id)
         where = " WHERE " + " AND ".join(conditions) if conditions else ""
         with self._database() as db:
-            rows = db.execute(
-                "SELECT id,created,kind,audio,ja FROM events" + where + " ORDER BY id DESC LIMIT 250", args,
+            return db.execute(
+                "SELECT id,created,kind,audio,ja,zh FROM events" + where + " ORDER BY id DESC LIMIT 250", args,
             ).fetchall()
-        return [(f"{row['created'][5:16].replace('T', ' ')} · {row['kind']} · "
-                 f"{(row['ja'] or Path(row['audio']).name if row['audio'] else row['ja'] or '查看记录')[:45]}",
-                 str(row["id"])) for row in rows]
+
+    def list_events(self, *, audio_only=False, main_only=False, chat_id=None):
+        rows = self._query_events(audio_only=audio_only, main_only=main_only, chat_id=chat_id)
+        out = []
+        for row in rows:
+            ts = row["created"][5:16].replace("T", " ")
+            badge = _kind_badge(row["kind"])
+            zh_s = _clean_one_line(row["zh"], 28)
+            ja_s = _clean_one_line(row["ja"], 28)
+            if zh_s and ja_s and zh_s != ja_s:
+                summary = f"「{zh_s}」({ja_s})"
+            elif zh_s or ja_s:
+                summary = f"「{zh_s or ja_s}」"
+            elif row["audio"]:
+                summary = Path(row["audio"]).stem
+            else:
+                summary = "查看记录"
+            out.append((f"{badge} · {summary} · [{ts}]", str(row["id"])))
+        return out
+
+    def list_table_rows(self, *, audio_only=False, main_only=False, chat_id=None):
+        rows = self._query_events(audio_only=audio_only, main_only=main_only, chat_id=chat_id)
+        table = []
+        for row in rows:
+            ts = row["created"][5:16].replace("T", " ")
+            badge = _kind_badge(row["kind"])
+            zh_s = _clean_one_line(row["zh"], 34) or "—"
+            ja_s = _clean_one_line(row["ja"], 34) or "—"
+            fname = Path(row["audio"]).name if row["audio"] else "—"
+            table.append([str(row["id"]), ts, badge, zh_s, ja_s, fname])
+        return table
 
     def audio_paths(self):
         with self._database() as db:
@@ -122,3 +177,7 @@ class DirectorArchive:
                 "SELECT events.*, chats.title FROM events LEFT JOIN chats ON chats.id=events.chat_id WHERE events.id=?",
                 (event_id,),
             ).fetchone()
+
+    def delete_event(self, event_id):
+        with self._database() as db:
+            db.execute("DELETE FROM events WHERE id=?", (event_id,))
