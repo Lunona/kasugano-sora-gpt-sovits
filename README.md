@@ -43,10 +43,13 @@
 
 整合包已内置 Python 环境、GPT-SoVITS 预训练底模、微调权重、音素对齐模型、43 档全年龄参考音与 ASMR 参考：
 
-- **GitHub Release（分卷 .001 ~ .006，完整包约 9.01 GB）**：
+- **百度网盘（完整单包，推荐）**：
+  - 链接：https://pan.baidu.com/s/1oHZiATkQdyCzA1DN9_sJXg
+  - 提取码：`s2ns`
+- **GitHub Release（分卷 .001 ~ .006，完整包约 9.01 GB，与网盘同款）**：
   - https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0
   - 将 `sora_portable_v1.0.zip.001` ~ `.006` 全部下载到同一目录后，右键 `.001` 用 7-Zip / Bandizip 解压即可。
-- 解压后双击根目录 **`启动穹语音生成.cmd`** 即可自动打开浏览器界面；
+- 解压到纯英文/无特殊符号路径（建议显卡显存 ≥ 6GB），双击根目录 **`启动穹语音生成.cmd`** 即可自动打开浏览器界面；
 - 在网页底部「API 设置」填入 DeepSeek（或 OpenAI 兼容接口）API Key 即可开始使用（如需目标模式自动审听，可配阿里云百炼 `qwen3.8-omni-flash` Key）。
 
 ---
