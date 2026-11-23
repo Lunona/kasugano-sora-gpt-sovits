@@ -321,8 +321,7 @@ def _finalize_director_plan(text, cuts, plan):
     validate(text,result)
     return result
 
-def plan_with_ollama(text, context):
-    cuts, chunks = _split_director_chunks(text)
+def _director_plan_schema(count):
     spec={"type":"object","properties":{
         "primary":{"enum":[None,*EMOTIONS]},"secondary":{"enum":[None,*EMOTIONS]},
         "intensity":{"type":"number","minimum":0,"maximum":1},
@@ -335,8 +334,16 @@ def plan_with_ollama(text, context):
         "delivery_text":{"type":["string","null"]},
         "event_before":{"type":["string","null"]}},
         "required":["primary","secondary","intensity","pause_s","delivery","event","event_before"]}
-    schema={"type":"object","properties":{"segments":{"type":"array","minItems":len(chunks),
-             "maxItems":len(chunks),"items":spec}},"required":["segments"]}
+    return {"type":"object","properties":{"segments":{"type":"array","minItems":count,
+             "maxItems":count,"items":spec},
+             "emo_scale":{"type":"number"}, "whisper_mode":{"type":"boolean"},
+             "declick_deess":{"type":"boolean"}, "ambient_bed":{"enum":["none","rain"]},
+             "ambient_level":{"type":"number"}},"required":["segments"]}
+
+
+def plan_with_ollama(text, context):
+    cuts, chunks = _split_director_chunks(text)
+    schema = _director_plan_schema(len(chunks))
     payload=dict(model=os.environ.get("SORAVOICE_PLANNER","qwen2.5:3b"),prompt=_director_prompt(chunks, context),format=schema,
                  stream=False,keep_alive=0,options={"temperature":0,"num_gpu":0,"num_predict":min(2400, 180 * len(chunks) + 80)})
     request=urllib.request.Request("http://127.0.0.1:11434/api/generate",
@@ -371,7 +378,25 @@ def report_director_usage(operation, model, usage, started, *, first_content=Non
         pass
 
 
-def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120, operation="导演请求"):
+OLLAMA_DIRECTOR_URL = "http://127.0.0.1:11434/v1"
+DIRECTOR_STRING = {"type": "string", "minLength": 1}
+
+
+def is_local_ollama(url):
+    return (url or "").strip().rstrip("/").removesuffix("/chat/completions") == OLLAMA_DIRECTOR_URL
+
+
+def director_json_schema(**properties):
+    return {"type": "object", "properties": properties, "required": list(properties)}
+
+
+def _director_response_format(url, schema):
+    if schema and is_local_ollama(url):
+        return {"type": "json_schema", "json_schema": {"name": "director_result", "schema": schema}}
+    return {"type": "json_object"}
+
+
+def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120, operation="导演请求", schema=None):
     import time
     import urllib.error
 
@@ -385,7 +410,7 @@ def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, ti
     payload = {
         "model": mdl,
         "temperature": 0.1,
-        "response_format": {"type": "json_object"},
+        "response_format": _director_response_format(url, schema),
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
@@ -462,7 +487,7 @@ def _extract_partial_json_reply(buf: str) -> str | None:
     return "".join(out)
 
 
-def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120):
+def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120, schema=None):
     """Stream SSE chunks from DeepSeek JSON mode, yielding (partial_reply, None) then (full_reply, parsed_dict)."""
     key = api_key or os.environ.get("DEEPSEEK_API_KEY", "").strip()
     if not key:
@@ -475,7 +500,7 @@ def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=N
         "model": mdl,
         "temperature": 0.1,
         "stream": True,
-        "response_format": {"type": "json_object"},
+        "response_format": _director_response_format(url, schema),
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
@@ -528,7 +553,7 @@ def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=N
         report_director_usage("导演讨论", mdl, usage, started, first_content=first_content)
         yield parsed["reply"].strip(), parsed
     except Exception:
-        parsed = deepseek_json(system, prompt, api_key=api_key, base_url=base_url, model=model, timeout=timeout, operation="导演讨论回退")
+        parsed = deepseek_json(system, prompt, api_key=api_key, base_url=base_url, model=model, timeout=timeout, operation="导演讨论回退", schema=schema)
         reply = parsed["reply"].strip() if isinstance(parsed.get("reply"), str) else ""
         yield reply, parsed
 
@@ -558,10 +583,11 @@ def plan_with_deepseek(text, context="", api_key=None, base_url=None, model=None
         "如果是贴耳轻语、睡前低语、撒娇私语等近麦 ASMR 场景，将 whisper_mode 设为 true，否则设为 false。"
         "当台词包含较多喘息叹气（「はぁ」「ふぅ」「あっ」「んっ」）、密集气口、哭腔或贴耳轻语，需要柔化气噪与清辅音尖刺时，将 declick_deess 设为 true，否则设为 false。"
     )
-    if persona:
+    local = is_local_ollama(base_url)
+    if persona and not local:
         system_prompt += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
-    batch_size = 20
-    if len(chunks) <= 25:
+    batch_size = 6 if local else 20
+    if len(chunks) <= (batch_size if local else 25):
         batch_ranges = [(0, len(chunks))]
     else:
         batch_ranges = [(i, min(i + batch_size, len(chunks))) for i in range(0, len(chunks), batch_size)]
@@ -585,6 +611,7 @@ def plan_with_deepseek(text, context="", api_key=None, base_url=None, model=None
                 system_prompt,
                 _director_prompt(sub_chunks, batch_ctx),
                 api_key=api_key, base_url=base_url, model=model, operation="表演规划",
+                schema=_director_plan_schema(len(sub_chunks)),
             )
             segs = resp.get("segments")
             if isinstance(segs, list) and len(segs) == len(sub_chunks):
@@ -639,12 +666,17 @@ def rank_references_with_deepseek(text, context, plan, candidates, *, count, api
         '只输出 JSON：{"overview":"中文概括整句演法","ranking":[{"id":"候选编号","reason":"中文简述适用理由或风险"}]}。'
         "按适配度列出恰好 count 个不同候选，禁止添加未提供的编号。先给整句首选，再给有明确区别的备选。"
     )
-    if persona:
+    if persona and not is_local_ollama(base_url):
         sys_prompt += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
+    entry_schema = director_json_schema(id={"enum": [candidate["id"] for candidate in candidates]},
+                                        reason=DIRECTOR_STRING)
     result = deepseek_json(
         sys_prompt,
         json.dumps(data, ensure_ascii=False),
         api_key=api_key, base_url=base_url, model=model, operation="参考音排序",
+        schema=director_json_schema(overview=DIRECTOR_STRING, ranking={
+            "type": "array", "minItems": count, "maxItems": count, "items": entry_schema,
+        }),
     )
     overview = result["overview"]
     if not isinstance(overview, str) or not overview.strip():

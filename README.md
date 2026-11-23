@@ -1,6 +1,6 @@
 # 春日野穹 GPT-SoVITS 表演向语音合成（AI 导演 + 贴耳轻语 + 多模态自迭代）
 
-基于 **GPT-SoVITS v2ProPlus** 的春日野穹（《缘之空》）表演向日语语音合成项目，集成了 **DeepSeek AI 配音导演**、**阿里云千问 / Gemini / OpenAI 音频审听闭环**、**48kHz 双声道 ASMR 贴耳音景** 以及 **本地自优化微调引擎**。
+基于 **GPT-SoVITS v2ProPlus** 的春日野穹（《缘之空》）表演向日语语音合成项目，集成了 **DeepSeek / 本地 Ollama AI 配音导演**、**阿里云千问 / Gemini / OpenAI 音频审听闭环**、**48kHz 双声道 ASMR 贴耳音景** 以及 **本地自优化微调引擎**。
 
 ---
 
@@ -10,7 +10,7 @@
    - **实时流式导演讨论**：支持在对话区与导演实时推敲台词、语气与潜台词，支持流式输出与一键定稿；搭配 `sora_persona.md` 角色表演档案，保持穹的性格、语感与口吻一致。
    - **中文台词自动地道化**：自动将中文输入改写为贴合角色习惯的日语口语，拒绝生硬机翻。
    - **句内多情绪分段规划**：自动按停顿切分台词并分配主/次情绪、权重、强度、停顿时长（`pause_s`）、发声方式（`delivery`）与局部韵律提示；支持超长独白分批规划与稳态拼接，纯喘息短段自动并入实词上下文。
-   - **43 档全年龄声学画像选角**：结合语速（字/秒）与 F0 音高跨度筛选最匹配的参考音频（支持本地规则与 DeepSeek 语义排序）。
+   - **63 档声学画像选角**：结合语速（字/秒）与 F0 音高跨度筛选最匹配的参考音频（支持本地规则、DeepSeek 与 Ollama 语义排序）。
 
 2. **导演自动声效与 48kHz 双声道音景（`synthesize.py` / `acoustic_delivery.py`）**
    - **贴耳轻语模式（ASMR）**：支持自动或手动切换 Demucs 洗净训练的 ASMR SoVITS 权重（`epoch5`）与低气泡音参考（`ASMR_0290`）；常规模式使用高清晰度 `epoch25` + 连续防劈音限幅（`REF_SOFTNESS`）。
@@ -41,16 +41,19 @@
 
 ## 绿色免安装整合包（推荐普通用户）
 
-整合包已内置 Python 环境、GPT-SoVITS 预训练底模、微调权重、音素对齐模型、43 档全年龄参考音与 ASMR 参考：
+绿色版内置 Python、GPT-SoVITS 环境、合成权重、参考音频与音素对齐模型。首次安装需要 **v1.0 完整包 + v1.1 更新补丁**。
 
-- **百度网盘（完整单包，推荐）**：
-  - 链接：https://pan.baidu.com/s/1oHZiATkQdyCzA1DN9_sJXg
-  - 提取码：`s2ns`
-- **GitHub Release（分卷 .001 ~ .006，完整包约 9.01 GB，与网盘同款）**：
-  - https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0
-  - 将 `sora_portable_v1.0.zip.001` ~ `.006` 全部下载到同一目录后，右键 `.001` 用 7-Zip / Bandizip 解压即可。
-- 解压到纯英文/无特殊符号路径（建议显卡显存 ≥ 6GB），双击根目录 **`启动穹语音生成.cmd`** 即可自动打开浏览器界面；
-- 在网页底部「API 设置」填入 DeepSeek（或 OpenAI 兼容接口）API Key 即可开始使用（如需目标模式自动审听，可配阿里云百炼 `qwen3.8-omni-flash` Key）。
+1. 下载 [GitHub Release v1.0 的六个完整包分卷](https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0)，放在同一个目录后，用 7-Zip 或 Bandizip 打开 `.001` 解压。也可改从 [百度网盘下载 v1.0 完整包](https://pan.baidu.com/s/1oHZiATkQdyCzA1DN9_sJXg)，提取码 `s2ns`。
+2. 下载 [v1.1 更新补丁](https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.1)，解压覆盖到包含启动脚本、`app`、`sora` 和 `data` 的目录。已安装 v1.0 的用户直接做这一步。
+3. 双击 `启动穹语音生成.cmd`，浏览器会打开 WebUI。v1.1 绿色综合包提供 63 档声学参考。
+
+### 本地 Ollama 导演
+
+1. 安装并打开 [Ollama](https://ollama.com/download/windows)，下载对话模型。可用 `ollama pull qwen2.5:3b` 获取已测试的模型。
+2. 在网页底部「API 设置 → 导演模型」选择「本地 Ollama」，从检测到的模型中选一个，点「保存配置」。如果刚打开 Ollama，点「检测 Ollama 模型」刷新。
+3. 右侧可继续讨论演法、下达制作任务、定稿及发起合成。审批行为由「审批后生成 / 全自动」设置决定。
+
+也可在同一位置配置 DeepSeek 或其他 OpenAI 兼容接口。若使用目标模式的自动审听，在「音频评审模型」里独立配置支持 WAV 的接口。
 
 ---
 

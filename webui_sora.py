@@ -40,6 +40,7 @@ from self_optimize import (
 )
 
 from performance import (
+    DIRECTOR_STRING, OLLAMA_DIRECTOR_URL, director_json_schema, is_local_ollama,
     APP, EMOTIONS, deepseek_json, deepseek_json_stream, load_sora_persona, plan_with_deepseek, plan_with_ollama, rank_references_with_deepseek, report_director_usage, validate,
 )
 from synthesize import (
@@ -77,28 +78,53 @@ _EMO_SHORT = {
 
 UI_THEME = gr.themes.Soft(
     primary_hue="sky",
-    secondary_hue="pink",
+    secondary_hue="slate",
     neutral_hue="slate",
     radius_size="lg",
-    font=["Microsoft YaHei UI", "Hiragino Kaku Gothic ProN", "PingFang SC", "Noto Sans SC", "sans-serif"],
+    font=["Microsoft YaHei UI", "Hiragino Sans", "PingFang SC", "Noto Sans SC", "sans-serif"],
     font_mono=["Cascadia Code", "Consolas", "monospace"],
 ).set(
-    body_background_fill="linear-gradient(155deg, #edf6ff 0%, #f5f0ff 52%, #fff2f8 100%)",
-    body_background_fill_dark="linear-gradient(155deg, #0b1224 0%, #16132e 55%, #23122a 100%)",
-    block_background_fill="rgba(255, 255, 255, 0.82)",
-    block_background_fill_dark="rgba(18, 22, 42, 0.80)",
+    body_background_fill="linear-gradient(155deg, #f2f7fd 0%, #f8fafd 52%, #e9f2fb 100%)",
+    body_background_fill_dark="linear-gradient(155deg, #0b1020 0%, #11182c 55%, #161e34 100%)",
+    block_background_fill="rgba(255, 255, 255, 0.86)",
+    block_background_fill_dark="rgba(17, 23, 39, 0.82)",
     block_border_width="1px",
-    block_border_color="rgba(147, 197, 253, 0.45)",
-    block_border_color_dark="rgba(129, 140, 248, 0.28)",
-    block_shadow="0 6px 24px rgba(125, 162, 235, 0.10)",
-    input_background_fill="rgba(255, 255, 255, 0.90)",
-    input_background_fill_dark="rgba(15, 20, 38, 0.85)",
-    input_border_color="rgba(165, 180, 252, 0.45)",
+    block_border_color="rgba(148, 179, 214, 0.42)",
+    block_border_color_dark="rgba(148, 179, 214, 0.22)",
+    block_label_background_fill="rgba(242, 247, 253, 0.94)",
+    block_label_background_fill_dark="rgba(24, 34, 58, 0.92)",
+    block_label_text_color="#25324a",
+    block_label_text_color_dark="#d6e4f7",
+    block_label_border_width="1px",
+    block_label_border_color="rgba(148, 179, 214, 0.45)",
+    block_label_border_color_dark="rgba(138, 184, 232, 0.28)",
+    block_title_background_fill="rgba(242, 247, 253, 0.94)",
+    block_title_background_fill_dark="rgba(24, 34, 58, 0.92)",
+    block_title_text_color="#25324a",
+    block_title_text_color_dark="#d6e4f7",
+    border_color_primary="rgba(148, 179, 214, 0.35)",
+    border_color_primary_dark="rgba(30, 42, 68, 0.72)",
+    background_fill_secondary="rgba(244, 249, 255, 0.86)",
+    background_fill_secondary_dark="rgba(16, 22, 38, 0.86)",
+    block_shadow="0 6px 24px rgba(58, 92, 138, 0.08)",
+    input_background_fill="rgba(255, 255, 255, 0.94)",
+    input_background_fill_dark="rgba(13, 19, 34, 0.88)",
+    input_border_color="rgba(148, 179, 214, 0.48)",
+    input_border_color_dark="rgba(148, 179, 214, 0.26)",
+    input_border_color_focus="#5b8ec9",
     button_large_text_weight="800",
-    button_primary_background_fill="linear-gradient(105deg, #60a5fa 0%, #a78bfa 55%, #f472b6 100%)",
-    button_primary_background_fill_hover="linear-gradient(105deg, #3b82f6 0%, #8b5cf6 55%, #ec4899 100%)",
+    button_primary_background_fill="linear-gradient(110deg, #252d42 0%, #4676ae 58%, #6ea4dc 100%)",
+    button_primary_background_fill_hover="linear-gradient(110deg, #1d2436 0%, #3a689e 58%, #5d95d0 100%)",
     button_primary_text_color="#ffffff",
     button_primary_border_color="transparent",
+    slider_color="#4b7cb5",
+    slider_color_dark="#7daee0",
+    checkbox_background_color_selected="#2b3854",
+    checkbox_border_color_selected="#2b3854",
+    checkbox_label_background_fill_selected="linear-gradient(108deg, #232a3d 0%, #4472a8 70%, #6396ce 100%)",
+    checkbox_label_background_fill_selected_dark="linear-gradient(108deg, #232a3d 0%, #4472a8 70%, #6396ce 100%)",
+    checkbox_label_text_color_selected="#ffffff",
+    checkbox_label_text_color_selected_dark="#ffffff",
 )
 
 def _ui_asset_data_uri(filename: str) -> str:
@@ -113,15 +139,43 @@ def _ui_asset_data_uri(filename: str) -> str:
 
 _BG_LIGHT_URI = _ui_asset_data_uri("sora_bg_light.jpg")
 _BG_DARK_URI = _ui_asset_data_uri("sora_bg_dark.jpg")
-_HERO_BG_URI = _ui_asset_data_uri("sora_hero_bg.jpg")
-_AVATAR_URI = _ui_asset_data_uri("sora_avatar.jpg")
+_HERO_LIGHT_URI = (
+    _ui_asset_data_uri("sora_hero_light_comfy.jpg")
+    or _ui_asset_data_uri("sora_hero_light.jpg")
+    or _ui_asset_data_uri("sora_hero_bg.jpg")
+)
+_HERO_DARK_URI = (
+    _ui_asset_data_uri("sora_hero_dark_comfy.jpg")
+    or _ui_asset_data_uri("sora_hero_dark.jpg")
+    or _HERO_LIGHT_URI
+)
+_AVATAR_URI = (
+    _ui_asset_data_uri("sora_avatar_comfy.jpg")
+    or _ui_asset_data_uri("sora_avatar_v2.jpg")
+    or _ui_asset_data_uri("sora_avatar.jpg")
+)
+_PRESET_DAILY_URI = _ui_asset_data_uri("sora_preset_daily.jpg")
+_PRESET_CLINGY_URI = _ui_asset_data_uri("sora_preset_clingy.jpg")
+_PRESET_TSUN_URI = _ui_asset_data_uri("sora_preset_tsun.jpg")
+_PRESET_ASMR_URI = _ui_asset_data_uri("sora_preset_asmr.jpg")
+_GEN_BTN_ART_URI = _ui_asset_data_uri("sora_gen_btn_art.jpg")
+_PLAYER_BG_URI = _ui_asset_data_uri("sora_player_bg.jpg")
+_CHIBI_STICKER_URI = _ui_asset_data_uri("sora_chibi_sticker.png")
+_CHIBI_WRITE_URI = _ui_asset_data_uri("sora_chibi_write.png")
+_FB_GOOD_URI = _ui_asset_data_uri("sora_fb_good.jpg")
+_FB_BAD_URI = _ui_asset_data_uri("sora_fb_bad.jpg")
+_TAB_SELFOPT_URI = _ui_asset_data_uri("sora_tab_selfopt.jpg")
+_TAB_API_URI = _ui_asset_data_uri("sora_tab_api.jpg")
+_TAB_FX_URI = _ui_asset_data_uri("sora_tab_fx.jpg")
+_TAB_ADV_URI = _ui_asset_data_uri("sora_tab_adv.jpg")
+_CHAT_BG_URI = _ui_asset_data_uri("sora_chat_bg.jpg")
 
 _BG_WALLPAPER_CSS = ""
 if _BG_LIGHT_URI:
     _BG_WALLPAPER_CSS += f"""
 body, .gradio-container {{
   background-image:
-    linear-gradient(155deg, rgba(240, 248, 255, 0.72) 0%, rgba(246, 241, 255, 0.70) 52%, rgba(255, 242, 248, 0.74) 100%),
+    linear-gradient(155deg, rgba(244, 248, 253, 0.80) 0%, rgba(250, 251, 255, 0.76) 52%, rgba(236, 244, 253, 0.82) 100%),
     url("{_BG_LIGHT_URI}") !important;
   background-size: cover !important;
   background-position: center top !important;
@@ -133,7 +187,7 @@ if _BG_DARK_URI:
     _BG_WALLPAPER_CSS += f"""
 .dark body, .dark .gradio-container {{
   background-image:
-    linear-gradient(155deg, rgba(10, 16, 36, 0.74) 0%, rgba(22, 18, 46, 0.72) 55%, rgba(34, 16, 42, 0.76) 100%),
+    linear-gradient(155deg, rgba(10, 15, 28, 0.78) 0%, rgba(15, 21, 38, 0.74) 55%, rgba(19, 25, 44, 0.82) 100%),
     url("{_BG_DARK_URI}") !important;
   background-size: cover !important;
   background-position: center top !important;
@@ -141,87 +195,339 @@ if _BG_DARK_URI:
   background-repeat: no-repeat !important;
 }}
 """
-if _HERO_BG_URI:
+if _HERO_LIGHT_URI:
     _BG_WALLPAPER_CSS += f"""
 #sora-hero {{
-  min-height: 124px;
-  padding-right: 235px;
+  min-height: 158px;
+  padding-right: 300px;
   background-image:
-    linear-gradient(90deg, rgba(236, 246, 255, 0.96) 0%, rgba(244, 238, 255, 0.94) 58%, rgba(252, 238, 248, 0.55) 78%, rgba(255, 255, 255, 0.04) 100%),
-    url("{_HERO_BG_URI}") !important;
-  background-size: 100% 100%, auto 100% !important;
-  background-position: center, right center !important;
+    linear-gradient(92deg, rgba(252, 253, 255, 0.92) 0%, rgba(246, 251, 255, 0.80) 44%, rgba(240, 248, 255, 0.24) 68%, rgba(255, 255, 255, 0.0) 86%),
+    url("{_HERO_LIGHT_URI}") !important;
+  background-size: 100% 100%, cover !important;
+  background-position: center, center 22% !important;
   background-repeat: no-repeat, no-repeat !important;
 }}
+"""
+if _HERO_DARK_URI:
+    _BG_WALLPAPER_CSS += f"""
 .dark #sora-hero {{
   background-image:
-    linear-gradient(90deg, rgba(14, 24, 50, 0.96) 0%, rgba(30, 22, 60, 0.92) 58%, rgba(48, 20, 48, 0.52) 78%, rgba(16, 18, 36, 0.08) 100%),
-    url("{_HERO_BG_URI}") !important;
-  background-size: 100% 100%, auto 100% !important;
-  background-position: center, right center !important;
+    linear-gradient(92deg, rgba(11, 16, 30, 0.90) 0%, rgba(15, 22, 40, 0.74) 46%, rgba(16, 24, 44, 0.18) 70%, rgba(14, 19, 34, 0.0) 88%),
+    url("{_HERO_DARK_URI}") !important;
+  background-size: 100% 100%, cover !important;
+  background-position: center, center 24% !important;
   background-repeat: no-repeat, no-repeat !important;
 }}
-@media (max-width: 960px) {{
-  #sora-hero {{ padding-right: 28px; }}
+"""
+_BG_WALLPAPER_CSS += """
+@media (max-width: 960px) {
+  #sora-hero { padding-right: 24px !important; }
+}
+"""
+if _GEN_BTN_ART_URI:
+    _BG_WALLPAPER_CSS += f"""
+#sora-gen-btn,
+.gradio-container button.sora-art-primary {{
+  background-image:
+    linear-gradient(90deg, rgba(20, 32, 58, 0.44) 0%, rgba(22, 42, 78, 0.54) 50%, rgba(20, 32, 58, 0.40) 100%),
+    url("{_GEN_BTN_ART_URI}") !important;
+  background-size: 100% 100%, cover !important;
+  background-position: center, center 42% !important;
+  background-repeat: no-repeat, no-repeat !important;
+  text-shadow: 0 2px 10px rgba(10, 20, 44, 0.72) !important;
+}}
+"""
+if _CHAT_BG_URI:
+    _BG_WALLPAPER_CSS += f"""
+.sora-chat {{
+  background-image:
+    linear-gradient(180deg, rgba(250, 253, 255, 0.86) 0%, rgba(244, 249, 255, 0.84) 100%),
+    url("{_CHAT_BG_URI}") !important;
+  background-size: 100% 100%, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+.dark .sora-chat {{
+  background-image:
+    linear-gradient(180deg, rgba(13, 18, 32, 0.88) 0%, rgba(16, 23, 40, 0.86) 100%),
+    url("{_CHAT_BG_URI}") !important;
+  background-size: 100% 100%, cover !important;
+  background-position: center, center !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+"""
+if _PLAYER_BG_URI:
+    _BG_WALLPAPER_CSS += f"""
+.sora-audio-box {{
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(242, 248, 255, 0.66) 100%),
+    url("{_PLAYER_BG_URI}") !important;
+  background-size: 100% 100%, cover !important;
+  background-position: center, center 62% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+.dark .sora-audio-box {{
+  background-image:
+    linear-gradient(180deg, rgba(16, 22, 38, 0.80) 0%, rgba(12, 18, 32, 0.76) 100%),
+    url("{_PLAYER_BG_URI}") !important;
+  background-size: 100% 100%, cover !important;
+  background-position: center, center 62% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+"""
+if _PRESET_DAILY_URI:
+    _BG_WALLPAPER_CSS += f"""
+.gradio-container button.sora-preset-daily {{
+  background-image:
+    linear-gradient(92deg, rgba(255, 255, 255, 0.96) 0%, rgba(240, 248, 255, 0.90) 44%, rgba(240, 248, 255, 0.14) 70%, transparent 100%),
+    url("{_PRESET_DAILY_URI}") !important;
+  background-size: 100% 100%, auto 112% !important;
+  background-position: center, right -4px top 8% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+.dark .gradio-container button.sora-preset-daily {{
+  background-image:
+    linear-gradient(92deg, rgba(18, 28, 48, 0.96) 0%, rgba(22, 36, 62, 0.88) 46%, rgba(22, 36, 62, 0.24) 72%, rgba(18, 28, 48, 0.08) 100%),
+    url("{_PRESET_DAILY_URI}") !important;
+  background-size: 100% 100%, auto 112% !important;
+  background-position: center, right -4px top 8% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+"""
+if _PRESET_CLINGY_URI:
+    _BG_WALLPAPER_CSS += f"""
+.gradio-container button.sora-preset-clingy {{
+  background-image:
+    linear-gradient(92deg, rgba(255, 250, 252, 0.96) 0%, rgba(254, 242, 247, 0.90) 44%, rgba(254, 242, 247, 0.12) 70%, transparent 100%),
+    url("{_PRESET_CLINGY_URI}") !important;
+  background-size: 100% 100%, auto 114% !important;
+  background-position: center, right -4px top 6% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+.dark .gradio-container button.sora-preset-clingy {{
+  background-image:
+    linear-gradient(92deg, rgba(44, 24, 38, 0.96) 0%, rgba(52, 28, 44, 0.88) 46%, rgba(52, 28, 44, 0.22) 72%, rgba(44, 24, 38, 0.08) 100%),
+    url("{_PRESET_CLINGY_URI}") !important;
+  background-size: 100% 100%, auto 114% !important;
+  background-position: center, right -4px top 6% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+"""
+if _PRESET_TSUN_URI:
+    _BG_WALLPAPER_CSS += f"""
+.gradio-container button.sora-preset-tsun {{
+  background-image:
+    linear-gradient(92deg, rgba(248, 250, 253, 0.96) 0%, rgba(240, 243, 248, 0.90) 44%, rgba(240, 243, 248, 0.12) 70%, transparent 100%),
+    url("{_PRESET_TSUN_URI}") !important;
+  background-size: 100% 100%, auto 112% !important;
+  background-position: center, right -12px top 10% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+.dark .gradio-container button.sora-preset-tsun {{
+  background-image:
+    linear-gradient(92deg, rgba(24, 28, 42, 0.96) 0%, rgba(28, 34, 50, 0.88) 46%, rgba(28, 34, 50, 0.22) 72%, rgba(24, 28, 42, 0.08) 100%),
+    url("{_PRESET_TSUN_URI}") !important;
+  background-size: 100% 100%, auto 112% !important;
+  background-position: center, right -12px top 10% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+"""
+if _PRESET_ASMR_URI:
+    _BG_WALLPAPER_CSS += f"""
+.gradio-container button.sora-preset-asmr {{
+  background-image:
+    linear-gradient(92deg, rgba(16, 24, 46, 0.96) 0%, rgba(20, 32, 62, 0.86) 46%, rgba(20, 32, 62, 0.16) 72%, transparent 100%),
+    url("{_PRESET_ASMR_URI}") !important;
+  background-size: 100% 100%, auto 114% !important;
+  background-position: center, right -4px top 8% !important;
+  background-repeat: no-repeat, no-repeat !important;
+  text-shadow: 0 1px 6px rgba(8, 14, 30, 0.85) !important;
+}}
+"""
+if _FB_GOOD_URI:
+    _BG_WALLPAPER_CSS += f"""
+.gradio-container button.sora-fb-good {{
+  min-height: 48px !important;
+  justify-content: flex-start !important;
+  padding: 6px 14px !important;
+  background-image:
+    linear-gradient(92deg, rgba(255, 255, 255, 0.96) 0%, rgba(240, 248, 255, 0.90) 52%, rgba(240, 248, 255, 0.16) 78%, transparent 100%),
+    url("{_FB_GOOD_URI}") !important;
+  background-size: 100% 100%, auto 115% !important;
+  background-position: center, right 4px top 12% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+.dark .gradio-container button.sora-fb-good {{
+  background-image:
+    linear-gradient(92deg, rgba(20, 30, 52, 0.96) 0%, rgba(24, 38, 66, 0.88) 54%, rgba(24, 38, 66, 0.22) 80%, rgba(20, 30, 52, 0.08) 100%),
+    url("{_FB_GOOD_URI}") !important;
+  background-size: 100% 100%, auto 115% !important;
+  background-position: center, right 4px top 12% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+"""
+if _FB_BAD_URI:
+    _BG_WALLPAPER_CSS += f"""
+.gradio-container button.sora-fb-bad {{
+  min-height: 48px !important;
+  justify-content: flex-start !important;
+  padding: 6px 14px !important;
+  background-image:
+    linear-gradient(92deg, rgba(255, 247, 249, 0.96) 0%, rgba(253, 238, 243, 0.90) 52%, rgba(253, 238, 243, 0.14) 78%, transparent 100%),
+    url("{_FB_BAD_URI}") !important;
+  background-size: 100% 100%, auto 115% !important;
+  background-position: center, right 2px top 8% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+.dark .gradio-container button.sora-fb-bad {{
+  background-image:
+    linear-gradient(92deg, rgba(56, 22, 36, 0.96) 0%, rgba(62, 26, 40, 0.88) 54%, rgba(62, 26, 40, 0.22) 80%, rgba(56, 22, 36, 0.08) 100%),
+    url("{_FB_BAD_URI}") !important;
+  background-size: 100% 100%, auto 115% !important;
+  background-position: center, right 2px top 8% !important;
+  background-repeat: no-repeat, no-repeat !important;
+}}
+"""
+for _cls, _uri in (
+    ("sora-banner-fx", _TAB_FX_URI),
+    ("sora-banner-adv", _TAB_ADV_URI),
+    ("sora-banner-selfopt", _TAB_SELFOPT_URI),
+    ("sora-banner-api", _TAB_API_URI),
+):
+    if _uri:
+        _BG_WALLPAPER_CSS += f"""
+.{_cls} {{
+  background-image:
+    linear-gradient(92deg, rgba(252, 254, 255, 0.95) 0%, rgba(244, 249, 255, 0.86) 54%, rgba(240, 247, 255, 0.16) 76%, transparent 94%),
+    url("{_uri}") !important;
+}}
+.dark .{_cls} {{
+  background-image:
+    linear-gradient(92deg, rgba(16, 22, 38, 0.94) 0%, rgba(20, 28, 48, 0.84) 56%, rgba(20, 28, 48, 0.22) 78%, rgba(16, 22, 38, 0.06) 95%),
+    url("{_uri}") !important;
 }}
 """
 
 UI_CSS = """
+/* ═══════════════════════════════════════════════════════════════
+   春日野穹 · 缘之空 苍穹白裙与黑缎带视觉体系 (Kasugano Sora Theme)
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --sora-ink: #1e2536;
+  --sora-ink-soft: #4a566e;
+  --sora-ribbon: #232836;
+  --sora-ribbon-hover: #31384c;
+  --sora-sky: #5589c4;
+  --sora-sky-deep: #346094;
+  --sora-sky-soft: #e6f1fc;
+  --sora-blush: #cf829a;
+  --sora-border: rgba(148, 179, 214, 0.45);
+  --sora-lace: rgba(255, 255, 255, 0.92);
+  --sora-card-bg: rgba(255, 255, 255, 0.86);
+  --sora-card-shadow: 0 8px 26px rgba(52, 86, 130, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  --sora-card-hover-shadow: 0 10px 30px rgba(52, 86, 130, 0.13), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --sora-subcard-bg: rgba(244, 249, 255, 0.72);
+  --sora-serif: "Yu Mincho", "Hiragino Mincho ProN", "Songti SC", "STSong", "Noto Serif SC", Georgia, serif;
+}
+.dark {
+  --sora-ink: #e8eef8;
+  --sora-ink-soft: #a9b8d0;
+  --sora-ribbon: #181e2e;
+  --sora-ribbon-hover: #252e45;
+  --sora-sky: #8ab8e8;
+  --sora-sky-deep: #5d90c9;
+  --sora-sky-soft: rgba(91, 142, 201, 0.16);
+  --sora-blush: #e29db2;
+  --sora-border: rgba(148, 179, 214, 0.24);
+  --sora-lace: rgba(186, 210, 240, 0.16);
+  --sora-card-bg: rgba(16, 22, 38, 0.84);
+  --sora-card-shadow: 0 10px 32px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(186, 210, 240, 0.10);
+  --sora-card-hover-shadow: 0 12px 34px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(186, 210, 240, 0.16);
+  --sora-subcard-bg: rgba(22, 30, 50, 0.68);
+}
+
 .gradio-container {
-  max-width: 1460px !important;
+  max-width: 1480px !important;
   margin: 0 auto !important;
+  padding: 14px 20px 28px !important;
 }
 footer {display: none !important;}
 
-/* 顶部二次元横幅（缘之空 · 晴空缎带风格） */
+/* 优雅自定义滚动条 */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(125, 160, 200, 0.38);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(85, 137, 196, 0.62); }
+
+/* ───────────── 顶部横幅（缘之空 · 晴空白裙 / 月夜微雨） ───────────── */
 #sora-hero {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(125deg, rgba(224,242,254,.92) 0%, rgba(243,232,255,.90) 52%, rgba(252,231,243,.92) 100%);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1.5px solid rgba(255,255,255,.88);
-  border-radius: 26px;
+  background-color: rgba(250, 252, 255, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(172, 198, 228, 0.65);
+  border-radius: 24px;
   padding: 20px 28px;
-  margin-bottom: 12px;
-  box-shadow: 0 10px 34px rgba(129, 140, 248, 0.16), inset 0 1px 0 rgba(255,255,255,.95);
+  margin-bottom: 14px;
+  box-shadow:
+    0 12px 34px rgba(52, 86, 130, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 0 0 4px rgba(255, 255, 255, 0.34);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 14px;
+  gap: 16px;
 }
 .dark #sora-hero {
-  background: linear-gradient(125deg, rgba(16,44,74,.88) 0%, rgba(42,26,78,.88) 55%, rgba(68,20,56,.88) 100%);
-  border-color: rgba(165, 180, 252, 0.28);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  background-color: rgba(14, 20, 36, 0.90);
+  border-color: rgba(148, 179, 214, 0.28);
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.44),
+    inset 0 1px 0 rgba(196, 218, 245, 0.14),
+    inset 0 0 0 4px rgba(148, 179, 214, 0.05);
 }
+/* 顶部纤细黑缎带装饰线 */
 #sora-hero::before {
   content: "";
   position: absolute;
-  inset: 0;
-  background-image: radial-gradient(rgba(255,255,255,.55) 1.2px, transparent 1.2px);
-  background-size: 22px 22px;
-  opacity: .35;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #232836 0%, #4b7cb5 38%, #9dc4eb 72%, transparent 100%);
+  opacity: 0.85;
   pointer-events: none;
 }
-.dark #sora-hero::before {opacity: .12;}
-#sora-hero .hero-left {
+.dark #sora-hero::before {
+  background: linear-gradient(90deg, #8ab8e8 0%, #4b7cb5 45%, rgba(226, 157, 178, 0.55) 75%, transparent 100%);
+  opacity: 0.72;
+}
+#sora-hero .hero-main {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
+  max-width: 100%;
+}
+#sora-hero .sora-crest-wrap {
+  position: relative;
+  flex-shrink: 0;
 }
 #sora-hero .sora-crest {
-  width: 68px;
-  height: 68px;
-  flex-shrink: 0;
-  border-radius: 20px;
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
   overflow: hidden;
-  background: linear-gradient(145deg, #ffffff 0%, #e0f2fe 55%, #fce7f3 100%);
-  border: 2.5px solid rgba(255, 255, 255, 0.95);
-  box-shadow: 0 6px 18px rgba(129, 140, 248, 0.34), 0 0 0 2px rgba(244, 114, 182, 0.28);
+  background: #ffffff;
+  border: 3px solid #ffffff;
+  box-shadow:
+    0 6px 20px rgba(45, 76, 118, 0.24),
+    0 0 0 1.5px rgba(35, 40, 54, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -233,289 +539,715 @@ footer {display: none !important;}
   display: block;
 }
 .dark #sora-hero .sora-crest {
-  background: linear-gradient(145deg, #1e293b 0%, #312e81 65%, #500724 100%);
-  border-color: rgba(196, 181, 253, 0.65);
+  border-color: rgba(203, 220, 242, 0.75);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    0 0 0 1.5px rgba(138, 184, 232, 0.35);
+}
+/* 徽章角落的小黑色蝴蝶结 */
+#sora-hero .crest-bow {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  width: 28px;
+  height: 22px;
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.28));
+  pointer-events: none;
+}
+#sora-hero .hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 #sora-hero .jp-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 2.2px;
-  color: #6366f1;
+  letter-spacing: 2.4px;
+  color: var(--sora-sky-deep);
   text-transform: uppercase;
-  margin-bottom: 2px;
 }
-.dark #sora-hero .jp-kicker {color: #a5b4fc;}
+.dark #sora-hero .jp-kicker { color: #9bc5ee; }
 #sora-hero .title {
-  font-size: 25px;
-  font-weight: 900;
-  letter-spacing: 1px;
-  background: linear-gradient(90deg, #0369a1 0%, #6366f1 55%, #db2777 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-.dark #sora-hero .title {
-  background: linear-gradient(90deg, #7dd3fc 0%, #c4b5fd 55%, #f9a8d4 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-#sora-hero .subtitle {font-size: 13px; color: #475569; margin-top: 3px;}
-.dark #sora-hero .subtitle {color: #cbd5e1;}
-#sora-hero .badges {position: relative; z-index: 1; display: flex; gap: 8px; flex-wrap: wrap;}
-#sora-hero .badge {
-  font-size: 12px;
+  font-family: var(--sora-serif);
+  font-size: 27px;
   font-weight: 700;
-  padding: 5px 12px;
+  letter-spacing: 2px;
+  color: var(--sora-ink);
+  line-height: 1.2;
+}
+#sora-hero .title .title-sep {
+  color: var(--sora-sky);
+  font-weight: 400;
+  margin: 0 6px;
+}
+#sora-hero .subtitle {
+  font-size: 13px;
+  color: var(--sora-ink-soft);
+  letter-spacing: 0.3px;
+  margin-top: 2px;
+}
+#sora-hero .badges {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+#sora-hero .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3.5px 11px;
   border-radius: 999px;
-  background: rgba(255,255,255,.82);
-  border: 1px solid rgba(165, 180, 252, 0.55);
-  color: #4338ca;
-  box-shadow: 0 2px 8px rgba(129, 140, 248, 0.12);
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(148, 179, 214, 0.55);
+  color: #2b3a55;
+  box-shadow: 0 2px 6px rgba(52, 86, 130, 0.08);
+  letter-spacing: 0.3px;
+}
+#sora-hero .badge.ribbon-badge {
+  background: #232836;
+  border-color: #232836;
+  color: #f4f7fb;
 }
 .dark #sora-hero .badge {
-  background: rgba(15,23,42,.62);
-  border-color: rgba(165, 180, 252, 0.35);
-  color: #e0e7ff;
+  background: rgba(22, 31, 52, 0.78);
+  border-color: rgba(148, 179, 214, 0.32);
+  color: #d6e4f5;
+}
+.dark #sora-hero .badge.ribbon-badge {
+  background: rgba(138, 184, 232, 0.22);
+  border-color: rgba(138, 184, 232, 0.45);
+  color: #e8f2fc;
 }
 
-/* Galgame 磨砂对话卡片 */
-.sora-card {
-  border-radius: 22px !important;
-  padding: 16px 16px 12px !important;
-  border: 1.5px solid rgba(186, 214, 255, 0.65) !important;
-  background: rgba(255, 255, 255, 0.80) !important;
-  backdrop-filter: blur(14px) !important;
-  -webkit-backdrop-filter: blur(14px) !important;
-  box-shadow: 0 8px 26px rgba(125, 162, 235, 0.10), inset 0 1px 0 rgba(255,255,255,.9) !important;
-  transition: border-color .2s ease, box-shadow .2s ease;
+/* ───────────── Galgame 瓷白磨砂卡片与工作室面板 ───────────── */
+.sora-card,
+.sora-studio-panel,
+.sora-dock {
+  position: relative;
+  border-radius: 20px !important;
+  padding: 16px 18px 14px !important;
+  border: 1px solid var(--sora-border) !important;
+  background: var(--sora-card-bg) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: var(--sora-card-shadow) !important;
+  transition: border-color .22s ease, box-shadow .22s ease;
 }
-.sora-card:hover {
-  border-color: rgba(167, 139, 250, 0.65) !important;
-  box-shadow: 0 10px 30px rgba(147, 130, 246, 0.14), inset 0 1px 0 rgba(255,255,255,.95) !important;
+.sora-card:hover,
+.sora-studio-panel:hover {
+  border-color: rgba(91, 142, 201, 0.62) !important;
+  box-shadow: var(--sora-card-hover-shadow) !important;
 }
-.dark .sora-card {
-  background: rgba(17, 22, 42, 0.78) !important;
-  border-color: rgba(129, 140, 248, 0.28) !important;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32) !important;
+.sora-studio-panel > .styler,
+.sora-dock > .styler,
+.sora-card > .styler {
+  background: transparent !important;
 }
+.sora-studio-panel {
+  padding: 12px 14px 14px !important;
+}
+.sora-dock {
+  margin-top: 16px !important;
+  padding: 12px 16px 16px !important;
+}
+
+/* 蕾丝虚线子卡片 */
 .sora-subcard {
-  border-radius: 16px !important;
-  padding: 12px !important;
+  border-radius: 15px !important;
+  padding: 12px 13px !important;
   margin-top: 8px !important;
-  border: 1px dashed rgba(167, 139, 250, 0.55) !important;
-  background: rgba(248, 250, 255, 0.68) !important;
+  border: 1px dashed rgba(125, 160, 200, 0.52) !important;
+  background: var(--sora-subcard-bg) !important;
 }
-.dark .sora-subcard {
-  background: rgba(24, 29, 56, 0.62) !important;
-  border-color: rgba(167, 139, 250, 0.32) !important;
+.sora-subcard > .styler {
+  background: transparent !important;
 }
+
+/* Galgame 章节铭牌标题 */
 .sora-section {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 800;
-  font-size: 15px;
-  padding: 2px 4px 10px;
-  color: #334155;
-  letter-spacing: .4px;
+  font-family: var(--sora-serif);
+  font-weight: 700;
+  font-size: 15.5px;
+  padding: 0 2px 10px;
+  color: var(--sora-ink);
+  letter-spacing: 1px;
 }
-.sora-section::before {
+.sora-section .sec-sub {
+  font-family: "Microsoft YaHei UI", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--sora-sky);
+  opacity: 0.85;
+  margin-left: 2px;
+}
+.sora-section::after {
   content: "";
-  display: inline-block;
-  width: 4px;
-  height: 16px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #38bdf8 0%, #a78bfa 55%, #f472b6 100%);
+  flex: 1;
+  order: 1;
+  height: 1px;
+  margin-left: 6px;
+  background: linear-gradient(90deg, rgba(91, 142, 201, 0.42) 0%, rgba(148, 179, 214, 0.10) 75%, transparent 100%);
 }
-.dark .sora-section {color: #e2e8f0;}
-.sora-hint {font-size: 12.5px; color: var(--body-text-color-subdued); padding: 2px 4px 8px; line-height: 1.65;}
+.sora-hint {
+  font-size: 12.5px;
+  color: var(--sora-ink-soft);
+  padding: 2px 4px 8px;
+  line-height: 1.65;
+}
 
-/* 全站二次元琉璃缎带按钮体系 */
+/* ───────────── 全站控件铭牌标签（排除含 SVG 图标的 span，避免音频图标外多出小椭圆） ───────────── */
+.gradio-container span[data-testid="block-info"],
+.gradio-container .block > label > span:not(.icon):not(:empty):not(:has(svg)),
+.gradio-container .block > .label-wrap > span:not(.icon):not(:empty):not(:has(svg)) {
+  font-family: var(--sora-serif) !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.6px !important;
+  color: var(--sora-ink) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(238, 245, 253, 0.92) 100%) !important;
+  border: 1px solid rgba(148, 179, 214, 0.52) !important;
+  border-radius: 8px !important;
+  padding: 2.5px 9px !important;
+  box-shadow: 0 1px 4px rgba(52, 86, 130, 0.06), inset 0 -1.5px 0 rgba(75, 124, 181, 0.35) !important;
+}
+.dark .gradio-container span[data-testid="block-info"],
+.dark .gradio-container .block > label > span:not(.icon):not(:empty):not(:has(svg)),
+.dark .gradio-container .block > .label-wrap > span:not(.icon):not(:empty):not(:has(svg)) {
+  color: #dce8f8 !important;
+  background: linear-gradient(180deg, rgba(28, 38, 64, 0.94) 0%, rgba(20, 28, 48, 0.92) 100%) !important;
+  border-color: rgba(138, 184, 232, 0.32) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24), inset 0 -1.5px 0 rgba(138, 184, 232, 0.42) !important;
+}
+/* 迷你分区插画横幅（用于声音效果 / 高级调音 / 自优化升级 / API 设置） */
+.sora-tab-banner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 15px;
+  padding: 13px 16px;
+  margin-bottom: 10px;
+  min-height: 74px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid rgba(148, 179, 214, 0.48);
+  box-shadow: 0 4px 14px rgba(52, 86, 130, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  background-size: 100% 100%, auto 116%;
+  background-position: center, right -4px top 12%;
+  background-repeat: no-repeat, no-repeat;
+}
+.dark .sora-tab-banner {
+  border-color: rgba(138, 184, 232, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+}
+.sora-tab-banner .tb-title {
+  font-family: var(--sora-serif);
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--sora-ink);
+}
+.sora-tab-banner .tb-sub {
+  font-size: 12px;
+  color: var(--sora-ink-soft);
+  margin-top: 2px;
+  max-width: 68%;
+  line-height: 1.45;
+}
+
+/* ───────────── 穹式按钮体系（白裙蕾丝双框 · 黑缎带蝴蝶结 · 苍穹丝绒） ───────────── */
 .gradio-container button.primary,
 .gradio-container button.secondary,
 .gradio-container button.stop {
+  position: relative;
   border-radius: 14px !important;
   font-weight: 700 !important;
-  letter-spacing: .4px !important;
-  transition: transform .16s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, filter .16s ease !important;
+  letter-spacing: 0.6px !important;
+  transition: transform .16s ease, box-shadow .2s ease, border-color .18s ease, background .2s ease, filter .16s ease !important;
 }
+
+/* 常规按钮：对称白裙蕾丝双框 + 微点蕾丝边（告别弯曲黑边） */
 .gradio-container button.secondary {
-  color: #3b4266 !important;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(238, 245, 255, 0.88) 100%) !important;
-  border: 1.5px solid rgba(165, 195, 255, 0.65) !important;
-  box-shadow: 0 4px 12px rgba(129, 140, 248, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+  color: #232b3e !important;
+  background:
+    radial-gradient(circle, rgba(91, 142, 201, 0.24) 0.9px, transparent 1px) left bottom 3px / 10px 4px repeat-x,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(242, 248, 254, 0.94) 100%) !important;
+  border: 1px solid rgba(148, 179, 214, 0.60) !important;
+  box-shadow:
+    0 3px 10px rgba(52, 86, 130, 0.08),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.94) !important;
 }
 .gradio-container button.secondary:hover {
   transform: translateY(-1.5px) !important;
-  color: #4f46e5 !important;
-  border-color: rgba(167, 139, 250, 0.85) !important;
-  background: linear-gradient(135deg, rgba(240, 249, 255, 0.98) 0%, rgba(245, 240, 255, 0.96) 55%, rgba(253, 242, 248, 0.96) 100%) !important;
-  box-shadow: 0 7px 18px rgba(167, 139, 250, 0.24), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+  color: #1c4474 !important;
+  border-color: #4f85c4 !important;
+  background:
+    radial-gradient(circle, rgba(52, 96, 148, 0.36) 1px, transparent 1.1px) left bottom 3px / 10px 4px repeat-x,
+    linear-gradient(180deg, #ffffff 0%, #e7f2fc 100%) !important;
+  box-shadow:
+    0 6px 16px rgba(74, 134, 200, 0.22),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.98) !important;
 }
 .gradio-container button.secondary:active {
   transform: translateY(0) scale(0.985) !important;
 }
 .dark .gradio-container button.secondary {
-  color: #e0e7ff !important;
-  background: linear-gradient(180deg, rgba(34, 42, 74, 0.88) 0%, rgba(24, 30, 56, 0.86) 100%) !important;
-  border-color: rgba(129, 140, 248, 0.42) !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(196, 181, 253, 0.18) !important;
+  color: #e2ecf9 !important;
+  background:
+    radial-gradient(circle, rgba(138, 184, 232, 0.26) 0.9px, transparent 1px) left bottom 3px / 10px 4px repeat-x,
+    linear-gradient(180deg, rgba(30, 40, 66, 0.94) 0%, rgba(21, 29, 50, 0.92) 100%) !important;
+  border: 1px solid rgba(138, 184, 232, 0.34) !important;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.30),
+    inset 0 0 0 1.5px rgba(186, 210, 240, 0.09) !important;
 }
 .dark .gradio-container button.secondary:hover {
   color: #ffffff !important;
-  border-color: rgba(196, 181, 253, 0.78) !important;
-  background: linear-gradient(135deg, rgba(46, 56, 98, 0.92) 0%, rgba(62, 42, 96, 0.90) 100%) !important;
-  box-shadow: 0 7px 18px rgba(129, 140, 248, 0.30) !important;
+  border-color: rgba(168, 206, 246, 0.76) !important;
+  background:
+    radial-gradient(circle, rgba(226, 157, 178, 0.42) 1px, transparent 1.1px) left bottom 3px / 10px 4px repeat-x,
+    linear-gradient(180deg, rgba(42, 56, 90, 0.96) 0%, rgba(30, 42, 72, 0.94) 100%) !important;
+  box-shadow: 0 6px 16px rgba(91, 142, 201, 0.32) !important;
 }
 
+/* 次级主按钮（如按讨论生成/保存配置）：黑缎带晴空丝绒 + 微蕾丝点边 + 蝴蝶结暗纹 */
 .gradio-container button.primary {
   color: #ffffff !important;
-  border: 1.5px solid rgba(255, 255, 255, 0.55) !important;
-  background: linear-gradient(105deg, #38bdf8 0%, #818cf8 55%, #f472b6 100%) !important;
-  box-shadow: 0 6px 18px rgba(129, 140, 248, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.52) !important;
+  border: 1px solid rgba(255, 255, 255, 0.56) !important;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='16' viewBox='0 0 36 26' fill='none'%3E%3Cpath d='M18 11C13 5 4 4.5 3.5 10.5C3 15.5 10.5 16 16.5 13M18 11C23 5 32 4.5 32.5 10.5C33 15.5 25.5 16 19.5 13' fill='%23ffffff' fill-opacity='0.24'/%3E%3Ccircle cx='18' cy='12' r='2.5' fill='%23ffffff' fill-opacity='0.34'/%3E%3C/svg%3E") right 10px center / 20px 15px no-repeat,
+    radial-gradient(circle, rgba(255, 255, 255, 0.32) 0.9px, transparent 1px) left bottom 3px / 10px 4px repeat-x,
+    linear-gradient(110deg, #242c40 0%, #4271a8 56%, #6da3db 100%) !important;
+  box-shadow:
+    0 5px 16px rgba(45, 76, 120, 0.28),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.16) !important;
 }
 .gradio-container button.primary:hover {
   transform: translateY(-1.5px) !important;
-  filter: brightness(1.06) !important;
-  box-shadow: 0 10px 24px rgba(244, 114, 182, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+  filter: brightness(1.07) !important;
+  box-shadow:
+    0 9px 22px rgba(53, 94, 145, 0.38),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.28) !important;
 }
 .gradio-container button.primary:active {
   transform: translateY(0) scale(0.985) !important;
 }
 
+/* 警示/清空按钮：对称蔷薇蕾丝卡扣 */
 .gradio-container button.stop {
-  color: #be123c !important;
-  background: linear-gradient(180deg, rgba(255, 241, 245, 0.96) 0%, rgba(254, 226, 236, 0.90) 100%) !important;
-  border: 1.5px solid rgba(251, 113, 133, 0.55) !important;
-  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  color: #9e3250 !important;
+  background:
+    radial-gradient(circle, rgba(201, 85, 117, 0.26) 0.9px, transparent 1px) left bottom 3px / 10px 4px repeat-x,
+    linear-gradient(180deg, rgba(255, 247, 249, 0.98) 0%, rgba(252, 235, 240, 0.94) 100%) !important;
+  border: 1px solid rgba(214, 126, 152, 0.56) !important;
+  box-shadow: 0 3px 10px rgba(190, 75, 108, 0.10), inset 0 0 0 2px rgba(255, 255, 255, 0.92) !important;
 }
 .gradio-container button.stop:hover {
   transform: translateY(-1.5px) !important;
   color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.55) !important;
-  background: linear-gradient(105deg, #fb7185 0%, #f43f5e 60%, #e11d48 100%) !important;
-  box-shadow: 0 8px 20px rgba(244, 63, 94, 0.30) !important;
+  border-color: transparent !important;
+  background: linear-gradient(110deg, #c95575 0%, #a83757 100%) !important;
+  box-shadow: 0 7px 18px rgba(182, 62, 96, 0.28) !important;
 }
 .dark .gradio-container button.stop {
-  color: #fda4af !important;
-  background: linear-gradient(180deg, rgba(76, 20, 42, 0.86) 0%, rgba(56, 16, 34, 0.84) 100%) !important;
-  border-color: rgba(251, 113, 133, 0.45) !important;
+  color: #f3b0c2 !important;
+  background:
+    radial-gradient(circle, rgba(226, 157, 178, 0.28) 0.9px, transparent 1px) left bottom 3px / 10px 4px repeat-x,
+    linear-gradient(180deg, rgba(66, 26, 40, 0.90) 0%, rgba(50, 20, 32, 0.88) 100%) !important;
+  border: 1px solid rgba(214, 126, 152, 0.44) !important;
 }
 .dark .gradio-container button.stop:hover {
   color: #ffffff !important;
-  background: linear-gradient(105deg, #fb7185 0%, #e11d48 100%) !important;
+  background: linear-gradient(110deg, #c95575 0%, #9e3150 100%) !important;
 }
 
-/* 主生成按钮（晴空樱粉高光流光胶囊） */
+/* ───────────── 核心主生成按钮（穹 · 白裙蕾丝 × 黑缎带蝴蝶结 × 黑兔主控） ───────────── */
 #sora-gen-btn {
   position: relative;
   overflow: hidden;
   min-height: 62px !important;
+  font-family: var(--sora-serif) !important;
   font-size: 18.5px !important;
-  font-weight: 800 !important;
-  letter-spacing: 1.8px !important;
-  border-radius: 20px !important;
-  border: 1.5px solid rgba(255, 255, 255, 0.72) !important;
-  color: #fff !important;
-  background: linear-gradient(100deg, #38bdf8 0%, #8b5cf6 52%, #f472b6 100%) !important;
-  box-shadow: 0 10px 28px rgba(139, 92, 246, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.60) !important;
-  transition: transform .16s ease, box-shadow .18s ease, filter .16s ease !important;
-  margin: 12px 0 !important;
+  font-weight: 700 !important;
+  letter-spacing: 2.4px !important;
+  border-radius: 18px !important;
+  border: 1.5px solid rgba(255, 255, 255, 0.78) !important;
+  color: #ffffff !important;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M8.5 10.5C7 5.5 7.5 2.5 9.5 2.8C11.2 3.1 11.4 6.8 11 10' fill='%23ffffff' fill-opacity='0.24'/%3E%3Cpath d='M15.5 10.5C17 5.5 16.5 2.5 14.5 2.8C12.8 3.1 12.6 6.8 13 10' fill='%23ffffff' fill-opacity='0.24'/%3E%3Ccircle cx='12' cy='14.8' r='6.2' fill='%23ffffff' fill-opacity='0.24'/%3E%3C/svg%3E") left 22px center / 26px 26px no-repeat,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='26' viewBox='0 0 36 26' fill='none'%3E%3Cpath d='M18 11C13 5 4 4.5 3.5 10.5C3 15.5 10.5 16 16.5 13' fill='%23ffffff' fill-opacity='0.26'/%3E%3Cpath d='M18 11C23 5 32 4.5 32.5 10.5C33 15.5 25.5 16 19.5 13' fill='%23ffffff' fill-opacity='0.26'/%3E%3Cpath d='M16 13L11.5 23.5L15.5 21.5L17.5 14M20 13L24.5 23.5L20.5 21.5L18.5 14' fill='%23ffffff' fill-opacity='0.20'/%3E%3Ccircle cx='18' cy='12' r='2.6' fill='%23ffffff' fill-opacity='0.36'/%3E%3C/svg%3E") right 22px center / 34px 24px no-repeat,
+    radial-gradient(circle, rgba(255, 255, 255, 0.36) 1px, transparent 1.2px) left top 4px / 12px 6px repeat-x,
+    radial-gradient(circle, rgba(255, 255, 255, 0.30) 1px, transparent 1.2px) left bottom 4px / 12px 6px repeat-x,
+    linear-gradient(108deg, #1f2536 0%, #345a8f 48%, #6096cf 100%) !important;
+  box-shadow:
+    0 10px 26px rgba(35, 62, 104, 0.34),
+    0 0 0 1px rgba(31, 37, 54, 0.22),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.14) !important;
+  transition: transform .18s ease, box-shadow .22s ease, filter .18s ease !important;
+  margin: 10px 0 !important;
+}
+.dark #sora-gen-btn {
+  border-color: rgba(186, 214, 245, 0.48) !important;
+  box-shadow:
+    0 12px 30px rgba(8, 16, 36, 0.56),
+    inset 0 0 0 3px rgba(186, 214, 245, 0.12) !important;
 }
 #sora-gen-btn::after {
   content: "";
   position: absolute;
-  top: -20%;
-  left: -75%;
-  width: 48%;
-  height: 140%;
-  background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.48) 50%, transparent 100%);
+  top: -25%;
+  left: -80%;
+  width: 44%;
+  height: 150%;
+  background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.42) 50%, transparent 100%);
   transform: skewX(-22deg);
-  transition: left .55s ease;
+  transition: left .62s ease;
   pointer-events: none;
 }
-#sora-gen-btn:hover::after {
-  left: 135%;
-}
+#sora-gen-btn:hover::after { left: 138%; }
 #sora-gen-btn:hover {
   transform: translateY(-2px) !important;
-  filter: brightness(1.06) !important;
-  box-shadow: 0 14px 34px rgba(244, 114, 182, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.80) !important;
+  filter: brightness(1.08) !important;
+  box-shadow:
+    0 14px 34px rgba(55, 93, 145, 0.44),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.26) !important;
 }
-#sora-gen-btn:active {transform: translateY(0) scale(0.99) !important;}
+#sora-gen-btn:active { transform: translateY(0) scale(0.99) !important; }
 
-/* 胶囊分页导航 */
-.sora-tabs > .tab-nav {
-  border-bottom: none !important;
-  gap: 6px !important;
-  padding: 6px !important;
-  border-radius: 16px !important;
-  background: rgba(255, 255, 255, 0.65) !important;
-  border: 1px solid rgba(186, 214, 255, 0.55) !important;
+/* 4 个穹式情境预设卡片按钮（ComfyUI 定制立绘卡面） */
+.sora-preset-row {
+  gap: 8px !important;
   margin-bottom: 8px !important;
 }
+.sora-preset-row button {
+  min-height: 74px !important;
+  font-family: var(--sora-serif) !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.8px !important;
+  border-radius: 15px !important;
+  justify-content: flex-start !important;
+  text-align: left !important;
+  padding: 10px 14px !important;
+  overflow: hidden !important;
+}
+.sora-preset-row button:hover {
+  transform: translateY(-2px) !important;
+  filter: brightness(1.03) !important;
+}
+
+/* 完整展示 Q 版穹看板娘贴纸（行内右对齐，防父容器裁切头部） */
+.sora-section-chibi {
+  min-height: 52px;
+  padding-top: 2px !important;
+  padding-bottom: 6px !important;
+}
+.sora-chibi-float {
+  order: 2;
+  width: 54px;
+  height: 54px;
+  margin-left: 8px;
+  flex-shrink: 0;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 6px rgba(35, 52, 86, 0.20));
+}
+.gradio-container button.sora-preset-daily {
+  border: 1px solid rgba(85, 137, 196, 0.58) !important;
+  box-shadow: 0 3px 10px rgba(85, 137, 196, 0.10), inset 0 -2.5px 0 #5589c4 !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(232, 244, 254, 0.94) 100%) !important;
+}
+.dark .gradio-container button.sora-preset-daily {
+  border-color: rgba(125, 180, 235, 0.44) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28), inset 0 -2.5px 0 #7db4eb !important;
+  background: linear-gradient(135deg, rgba(28, 42, 68, 0.92) 0%, rgba(22, 34, 56, 0.90) 100%) !important;
+}
+.gradio-container button.sora-preset-clingy {
+  border: 1px solid rgba(212, 132, 157, 0.58) !important;
+  box-shadow: 0 3px 10px rgba(212, 132, 157, 0.12), inset 0 -2.5px 0 #d4849d !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(253, 241, 246, 0.94) 100%) !important;
+}
+.dark .gradio-container button.sora-preset-clingy {
+  border-color: rgba(229, 164, 184, 0.44) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28), inset 0 -2.5px 0 #e5a4b8 !important;
+  background: linear-gradient(135deg, rgba(54, 30, 48, 0.90) 0%, rgba(36, 24, 42, 0.90) 100%) !important;
+}
+.gradio-container button.sora-preset-tsun {
+  border: 1px solid rgba(55, 65, 88, 0.45) !important;
+  box-shadow: 0 3px 10px rgba(35, 40, 54, 0.10), inset 0 -2.5px 0 #262c3d !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(238, 241, 247, 0.94) 100%) !important;
+}
+.dark .gradio-container button.sora-preset-tsun {
+  border-color: rgba(203, 213, 225, 0.36) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28), inset 0 -2.5px 0 #cbd5e1 !important;
+  background: linear-gradient(135deg, rgba(32, 37, 52, 0.94) 0%, rgba(22, 26, 38, 0.92) 100%) !important;
+}
+.gradio-container button.sora-preset-asmr {
+  border: 1px solid rgba(168, 210, 255, 0.55) !important;
+  box-shadow: 0 5px 16px rgba(30, 52, 92, 0.30), inset 0 -2.5px 0 #a8d2ff !important;
+  background: linear-gradient(125deg, #1b243d 0%, #2d4b7c 60%, #4b78b3 100%) !important;
+  color: #ffffff !important;
+}
+
+/* ───────────── 分段黑缎带书签导航 Tab（含蕾丝底边与蝴蝶结选中饰） ───────────── */
+.sora-tabs > .tab-nav {
+  border-bottom: none !important;
+  gap: 4px !important;
+  padding: 5px 6px 8px !important;
+  border-radius: 15px !important;
+  background:
+    radial-gradient(circle, rgba(91, 142, 201, 0.30) 1px, transparent 1.1px) left bottom 3px / 11px 4px repeat-x,
+    rgba(238, 245, 253, 0.84) !important;
+  border: 1px solid rgba(148, 179, 214, 0.45) !important;
+  margin-bottom: 10px !important;
+}
 .dark .sora-tabs > .tab-nav {
-  background: rgba(17, 22, 42, 0.72) !important;
-  border-color: rgba(129, 140, 248, 0.25) !important;
+  background:
+    radial-gradient(circle, rgba(138, 184, 232, 0.28) 1px, transparent 1.1px) left bottom 3px / 11px 4px repeat-x,
+    rgba(12, 17, 31, 0.84) !important;
+  border-color: rgba(148, 179, 214, 0.24) !important;
 }
 .sora-tabs > .tab-nav button {
+  font-family: var(--sora-serif) !important;
   font-weight: 700 !important;
-  font-size: 13.5px !important;
-  padding: 7px 14px !important;
-  border-radius: 12px !important;
-  border: none !important;
+  font-size: 12.5px !important;
+  letter-spacing: 0.2px !important;
+  padding: 6px 8px !important;
+  border-radius: 10px !important;
+  border: 1px solid transparent !important;
+  color: var(--sora-ink-soft) !important;
   transition: all .18s ease !important;
+}
+.sora-tabs > .tab-nav button:hover {
+  color: var(--sora-ink) !important;
+  border-color: rgba(148, 179, 214, 0.45) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+}
+.dark .sora-tabs > .tab-nav button:hover {
+  border-color: rgba(138, 184, 232, 0.28) !important;
+  background: rgba(138, 184, 232, 0.14) !important;
 }
 .sora-tabs > .tab-nav button.selected {
   color: #ffffff !important;
-  background: linear-gradient(100deg, #38bdf8 0%, #818cf8 60%, #f472b6 100%) !important;
-  box-shadow: 0 4px 12px rgba(129, 140, 248, 0.30) !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  padding-right: 22px !important;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='14' viewBox='0 0 36 26' fill='none'%3E%3Cpath d='M18 11C13 5 4 4.5 3.5 10.5C3 15.5 10.5 16 16.5 13M18 11C23 5 32 4.5 32.5 10.5C33 15.5 25.5 16 19.5 13' fill='%23ffffff' fill-opacity='0.48'/%3E%3Ccircle cx='18' cy='12' r='2.5' fill='%23ffffff' fill-opacity='0.75'/%3E%3C/svg%3E") right 5px center / 14px 11px no-repeat,
+    linear-gradient(108deg, #212738 0%, #3d6ba3 68%, #6396ce 100%) !important;
+  box-shadow:
+    0 4px 12px rgba(35, 62, 104, 0.30),
+    inset 0 -2px 0 rgba(186, 220, 255, 0.80) !important;
 }
-.sora-tabs > .tabitem {padding: 8px 4px 4px !important; border: none !important;}
-.sora-bottom {margin-top: 16px;}
+.sora-tabs > .tabitem { padding: 4px 2px 2px !important; border: none !important; }
 
-/* 竖排单选与输入框细节 */
-.sora-radio-stack .wrap {flex-direction: column !important; align-items: stretch !important; gap: 6px !important;}
-.sora-radio-stack label {border-radius: 12px !important; transition: border-color .15s ease, background .15s ease;}
+/* ───────────── 全站单选、滑动条（珍珠黑缎带滑块）、复选框与折叠面板 ───────────── */
+.sora-inline-bar {
+  align-items: center !important;
+  gap: 10px !important;
+  margin-top: 4px !important;
+}
+.sora-align-end {
+  align-items: flex-end !important;
+}
+.sora-radio-stack .wrap { flex-direction: column !important; align-items: stretch !important; gap: 6px !important; }
+
+/* 全局统一所有单选按钮为穹式瓷白 / 黑缎带晴空选中态 */
+.gradio-container .wrap label:has(input[type="radio"]):not(.selected):not(:has(input:checked)) {
+  border-radius: 11px !important;
+  border: 1px solid rgba(148, 179, 214, 0.42) !important;
+  background: var(--sora-card-bg) !important;
+  color: var(--sora-ink) !important;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.gradio-container .wrap label:has(input[type="radio"]):not(.selected):not(:has(input:checked)):hover {
+  border-color: rgba(85, 137, 196, 0.78) !important;
+}
+.gradio-container .wrap label.selected:has(input[type="radio"]),
+.gradio-container .wrap label:has(input[type="radio"]:checked) {
+  border-radius: 11px !important;
+  background: linear-gradient(108deg, #232a3d 0%, #4472a8 70%, #6396ce 100%) !important;
+  border: 1px solid rgba(255, 255, 255, 0.36) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(42, 72, 114, 0.24) !important;
+}
+.gradio-container .wrap label.selected:has(input[type="radio"]) span,
+.gradio-container .wrap label:has(input[type="radio"]:checked) span {
+  color: #ffffff !important;
+}
+
+/* 全站滑动条：白裙珍珠圆钮 + 黑缎带细环 */
+.gradio-container input[type="range"] {
+  accent-color: #4b7cb5 !important;
+}
+.gradio-container input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  width: 17px !important;
+  height: 17px !important;
+  border-radius: 50% !important;
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, #eef5fd 75%, #d6e6f7 100%) !important;
+  border: 2px solid #262d3f !important;
+  box-shadow: 0 2px 6px rgba(35, 48, 74, 0.28), 0 0 0 2px rgba(255, 255, 255, 0.75) !important;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.gradio-container input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.14);
+  border-color: #4b7cb5 !important;
+  box-shadow: 0 3px 10px rgba(75, 124, 181, 0.42), 0 0 0 3px rgba(138, 184, 232, 0.32) !important;
+}
+.dark .gradio-container input[type="range"]::-webkit-slider-thumb {
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, #dbeafe 80%) !important;
+  border-color: #6ea4dc !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.48), 0 0 0 2px rgba(138, 184, 232, 0.22) !important;
+}
+
 textarea:focus, input:focus {
-  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.35) !important;
+  box-shadow: 0 0 0 3px rgba(91, 142, 201, 0.26) !important;
 }
 
-/* 折叠面板 */
+/* 折叠面板：丝带信笺风格 */
 .sora-acc {
-  border-radius: 18px !important;
-  border: 1px solid rgba(186, 214, 255, 0.55) !important;
-  background: rgba(255, 255, 255, 0.72) !important;
-  backdrop-filter: blur(10px) !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(148, 179, 214, 0.48) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(242, 248, 254, 0.82) 100%) !important;
+  box-shadow: 0 2px 8px rgba(52, 86, 130, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+  margin-top: 8px !important;
 }
 .dark .sora-acc {
-  background: rgba(17, 22, 42, 0.72) !important;
-  border-color: rgba(129, 140, 248, 0.25) !important;
+  background: linear-gradient(180deg, rgba(22, 30, 50, 0.82) 0%, rgba(16, 22, 38, 0.80) 100%) !important;
+  border-color: rgba(148, 179, 214, 0.24) !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28) !important;
 }
-.sora-acc > button {font-weight: 700 !important;}
+.sora-acc > button {
+  font-family: var(--sora-serif) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.6px !important;
+  color: var(--sora-ink) !important;
+}
 
-/* 聊天区 */
+/* 导演聊天区：Galgame 对话气泡质感 */
 .sora-chat {
-  border-radius: 18px !important;
-  border: 1.5px solid rgba(186, 214, 255, 0.55) !important;
-  background: rgba(255, 255, 255, 0.72) !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(148, 179, 214, 0.48) !important;
+  background: rgba(249, 252, 255, 0.84) !important;
 }
 .dark .sora-chat {
-  background: rgba(14, 19, 36, 0.75) !important;
-  border-color: rgba(129, 140, 248, 0.28) !important;
+  background: rgba(13, 18, 32, 0.84) !important;
+  border-color: rgba(148, 179, 214, 0.24) !important;
 }
 
-/* 晴空樱粉进度条 */
+/* 音频播放器：苍穹八音盒 + 淡雅黑兔水印 */
+.sora-audio-box {
+  border-radius: 15px !important;
+  border: 1px solid rgba(148, 179, 214, 0.52) !important;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M8.5 10.5C7 5.5 7.5 2.5 9.5 2.8C11.2 3.1 11.4 6.8 11 10M15.5 10.5C17 5.5 16.5 2.5 14.5 2.8C12.8 3.1 12.6 6.8 13 10' fill='%234b7cb5' fill-opacity='0.08'/%3E%3Ccircle cx='12' cy='14.8' r='6.2' fill='%234b7cb5' fill-opacity='0.08'/%3E%3C/svg%3E") right 14px bottom 6px / 52px 52px no-repeat,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(238, 246, 254, 0.90) 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+.dark .sora-audio-box {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M8.5 10.5C7 5.5 7.5 2.5 9.5 2.8C11.2 3.1 11.4 6.8 11 10M15.5 10.5C17 5.5 16.5 2.5 14.5 2.8C12.8 3.1 12.6 6.8 13 10' fill='%238ab8e8' fill-opacity='0.10'/%3E%3Ccircle cx='12' cy='14.8' r='6.2' fill='%238ab8e8' fill-opacity='0.10'/%3E%3C/svg%3E") right 14px bottom 6px / 52px 52px no-repeat,
+    linear-gradient(180deg, rgba(22, 30, 50, 0.90) 0%, rgba(16, 22, 38, 0.90) 100%) !important;
+  border-color: rgba(148, 179, 214, 0.28) !important;
+}
+
+/* 音频库表格：苍穹晴空表头与柔光悬停 */
+.sora-table thead th {
+  background: linear-gradient(180deg, #eef6fd 0%, #e1eefb 100%) !important;
+  color: #24314a !important;
+  font-family: var(--sora-serif) !important;
+  font-weight: 700 !important;
+  border-bottom: 1.5px solid rgba(148, 179, 214, 0.55) !important;
+}
+.dark .sora-table thead th {
+  background: linear-gradient(180deg, #1b2540 0%, #141c32 100%) !important;
+  color: #dce8f8 !important;
+  border-bottom-color: rgba(138, 184, 232, 0.30) !important;
+}
+.sora-table tbody tr:hover td {
+  background: rgba(91, 142, 201, 0.10) !important;
+}
+.dark .sora-table tbody tr:hover td {
+  background: rgba(138, 184, 232, 0.12) !important;
+}
+
+/* 锁定标签片段卡片（适配浅色/深色） */
+.sora-pill-empty {
+  padding: 14px;
+  border: 1.5px dashed rgba(148, 179, 214, 0.55);
+  border-radius: 13px;
+  color: var(--sora-ink-soft);
+  font-size: 13px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.55);
+}
+.dark .sora-pill-empty {
+  background: rgba(16, 22, 38, 0.55);
+  border-color: rgba(148, 179, 214, 0.28);
+}
+.sora-pill-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 12px;
+  margin-bottom: 6px;
+  background: rgba(255, 255, 255, 0.90);
+  border: 1px solid rgba(148, 179, 214, 0.45);
+  border-left: 3px solid #232836;
+  border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(52, 86, 130, 0.06);
+}
+.dark .sora-pill-row {
+  background: rgba(22, 30, 50, 0.86);
+  border-color: rgba(148, 179, 214, 0.24);
+  border-left-color: #8ab8e8;
+}
+.sora-pill-idx {
+  color: var(--sora-sky);
+  font-weight: 800;
+  font-size: 12px;
+  min-width: 18px;
+}
+.sora-pill-meta {
+  background: var(--sora-sky-soft);
+  color: var(--sora-ink-soft);
+  padding: 2.5px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.sora-pill-text {
+  color: var(--sora-ink);
+  font-size: 13.5px;
+  margin-left: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+
+/* ───────────── 苍穹晴空进度条（附黑兔剪影） ───────────── */
 .sora-prog-card {
-  border-radius: 16px;
+  border-radius: 15px;
   padding: 10px 14px;
-  margin: 4px 0 8px;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1.5px solid rgba(165, 180, 252, 0.55);
-  box-shadow: 0 4px 14px rgba(129, 140, 248, 0.12);
+  margin: 4px 0 10px;
+  background: rgba(255, 255, 255, 0.90);
+  border: 1px solid rgba(148, 179, 214, 0.52);
+  box-shadow: 0 4px 14px rgba(52, 86, 130, 0.10);
 }
 .dark .sora-prog-card {
-  background: rgba(18, 24, 48, 0.88);
-  border-color: rgba(129, 140, 248, 0.35);
+  background: rgba(18, 25, 44, 0.90);
+  border-color: rgba(138, 184, 232, 0.30);
 }
 .sora-prog-head {
   display: flex;
@@ -523,73 +1255,85 @@ textarea:focus, input:focus {
   align-items: center;
   font-size: 13px;
   font-weight: 700;
-  color: #3730a3;
-  margin-bottom: 6px;
+  color: var(--sora-ink);
+  margin-bottom: 7px;
 }
-.dark .sora-prog-head {color: #c7d2fe;}
+.sora-prog-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 .sora-prog-track {
   width: 100%;
-  height: 9px;
+  height: 8px;
   border-radius: 999px;
-  background: rgba(226, 232, 240, 0.85);
+  background: rgba(214, 228, 245, 0.85);
   overflow: hidden;
 }
-.dark .sora-prog-track {background: rgba(30, 41, 59, 0.9);}
+.dark .sora-prog-track { background: rgba(30, 42, 68, 0.92); }
 .sora-prog-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #38bdf8 0%, #8b5cf6 55%, #f472b6 100%);
+  background: linear-gradient(90deg, #232a3d 0%, #4b7cb5 55%, #84b6e8 100%);
   transition: width .22s ease;
 }
 .gradio-container .progress-bar > .progress,
 .gradio-container .progress-level .progress-bar > div {
-  background: linear-gradient(90deg, #38bdf8 0%, #8b5cf6 55%, #f472b6 100%) !important;
+  background: linear-gradient(90deg, #232a3d 0%, #4b7cb5 55%, #84b6e8 100%) !important;
   border-radius: 999px !important;
 }
 .gradio-container .wrap .eta-bar,
 .gradio-container .progress-text {
   font-weight: 700 !important;
-  color: #4f46e5 !important;
+  color: var(--sora-sky-deep) !important;
 }
 .dark .gradio-container .wrap .eta-bar,
 .dark .gradio-container .progress-text {
-  color: #a5b4fc !important;
+  color: #9bc5ee !important;
 }
 """ + _BG_WALLPAPER_CSS
+
+_BLACK_RIBBON_SVG = """<svg class="crest-bow" viewBox="0 0 36 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M18 11C13 5 4 4.5 3.5 10.5C3 15.5 10.5 16 16.5 13" fill="#232836" stroke="#ffffff" stroke-width="1.3"/>
+  <path d="M18 11C23 5 32 4.5 32.5 10.5C33 15.5 25.5 16 19.5 13" fill="#232836" stroke="#ffffff" stroke-width="1.3"/>
+  <path d="M16 13L11.5 23.5L15.5 21.5L17.5 14" fill="#2b3142"/>
+  <path d="M20 13L24.5 23.5L20.5 21.5L18.5 14" fill="#2b3142"/>
+  <circle cx="18" cy="12" r="2.8" fill="#1b202c" stroke="#e2ecf8" stroke-width="1.1"/>
+</svg>"""
+
+_KURO_USAGI_ICON_SVG = """<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+  <path d="M8.5 10.5C7 5.5 7.5 2.5 9.5 2.8C11.2 3.1 11.4 6.8 11 10" fill="currentColor" opacity="0.88"/>
+  <path d="M15.5 10.5C17 5.5 16.5 2.5 14.5 2.8C12.8 3.1 12.6 6.8 13 10" fill="currentColor" opacity="0.88"/>
+  <circle cx="12" cy="14.8" r="6.2" fill="currentColor"/>
+  <path d="M9.6 14.2L10.8 15.4M10.8 14.2L9.6 15.4M13.2 14.2L14.4 15.4M14.4 14.2L13.2 15.4" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round"/>
+</svg>"""
 
 _HERO_CREST_HTML = (
     f'<img src="{_AVATAR_URI}" alt="春日野穹" />'
     if _AVATAR_URI
-    else """<svg width="38" height="38" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M16 22C13 13 14.5 7 18.5 7.5C21.5 8 22 14.5 21.5 20.5" stroke="#6366f1" stroke-width="2.6" stroke-linecap="round" fill="rgba(196,181,253,0.35)"/>
-        <path d="M32 22C35 13 33.5 7 29.5 7.5C26.5 8 26 14.5 26.5 20.5" stroke="#6366f1" stroke-width="2.6" stroke-linecap="round" fill="rgba(196,181,253,0.35)"/>
-        <circle cx="24" cy="29" r="11" fill="rgba(255,255,255,0.9)" stroke="#38bdf8" stroke-width="2.4"/>
-        <path d="M19.5 28.5C20.2 27.2 21.6 27.2 22.3 28.5M25.7 28.5C26.4 27.2 27.8 27.2 28.5 28.5" stroke="#475569" stroke-width="2" stroke-linecap="round"/>
-        <circle cx="17.5" cy="31.5" r="1.8" fill="#f9a8d4" opacity="0.85"/>
-        <circle cx="30.5" cy="31.5" r="1.8" fill="#f9a8d4" opacity="0.85"/>
-        <path d="M22.5 32.5Q24 34 25.5 32.5" stroke="#f472b6" stroke-width="1.8" stroke-linecap="round"/>
-        <path d="M24 20L19 17.5V22.5L24 20ZM24 20L29 17.5V22.5L24 20Z" fill="#f472b6"/>
-        <circle cx="24" cy="20" r="1.7" fill="#ffffff"/>
-      </svg>"""
+    else _KURO_USAGI_ICON_SVG
 )
 
 UI_HERO = f"""
 <div id="sora-hero">
-  <div class="hero-left">
-    <div class="sora-crest" aria-hidden="true">
-      {_HERO_CREST_HTML}
+  <div class="hero-main">
+    <div class="sora-crest-wrap" aria-hidden="true">
+      <div class="sora-crest">
+        {_HERO_CREST_HTML}
+      </div>
+      {_BLACK_RIBBON_SVG}
     </div>
-    <div>
-      <div class="jp-kicker">KASUGANO SORA · VOICE STUDIO · 縁之空</div>
-      <div class="title">春日野穹 · 表演向语音合成</div>
-      <div class="subtitle">AI 导演情绪编排 · 63 档声学参考匹配 · 贴耳轻语（ASMR）模式</div>
+    <div class="hero-copy">
+      <div class="jp-kicker">✦ YOSUGA NO SORA · KASUGANO SORA VOICE STUDIO</div>
+      <div class="title">春日野 穹<span class="title-sep">·</span>表演向语音合成</div>
+      <div class="subtitle">AI 导演潜台词编排 · 63 档声学参考匹配 · 贴耳轻语（ASMR）声场</div>
+      <div class="badges">
+        <span class="badge ribbon-badge">🎀 苍穹声场</span>
+        <span class="badge">GPT · ep15-ft1</span>
+        <span class="badge">SoVITS · ep25</span>
+        <span class="badge">🌙 ASMR · ep5</span>
+      </div>
     </div>
-  </div>
-  <div class="badges">
-    <span class="badge">✨ GPT · ep15-ft1</span>
-    <span class="badge">🎵 SoVITS · ep25</span>
-    <span class="badge">🌙 ASMR · ep5</span>
-    <span class="badge">🌸 苍穹声场</span>
   </div>
 </div>
 """
@@ -598,7 +1342,10 @@ _TTS_LOCK = threading.Lock()
 _CONFIG_LOCK = threading.Lock()
 _TTS_ENGINE = None
 
+OLLAMA_PROVIDER = "本地 Ollama"
+
 PROVIDER_PRESETS = {
+    OLLAMA_PROVIDER: (OLLAMA_DIRECTOR_URL, ""),
     "DeepSeek 官方": ("https://api.deepseek.com", "deepseek-chat"),
     "OpenAI 官方": ("https://api.openai.com/v1", "gpt-4o-mini"),
     "硅基流动 (SiliconFlow)": ("https://api.siliconflow.cn/v1", "Qwen/Qwen2.5-7B-Instruct"),
@@ -624,6 +1371,8 @@ def _same_endpoint(first, second):
 
 
 def _director_key(value, endpoint):
+    if is_local_ollama(endpoint):
+        return "ollama"
     if (value or "").strip():
         return value.strip()
     cfg = _load_config()
@@ -644,6 +1393,8 @@ def _write_config(data):
 
 
 def _save_config(provider: str, base_url: str, model_name: str, api_key: str) -> str:
+    if provider == OLLAMA_PROVIDER and not (model_name or "").strip():
+        raise gr.Error("请先检测并选择一个 Ollama 模型。")
     with _CONFIG_LOCK:
         data = _load_config()
         stored_key = data.get("api_key", "") if _same_endpoint(base_url, data.get("base_url")) else ""
@@ -651,7 +1402,7 @@ def _save_config(provider: str, base_url: str, model_name: str, api_key: str) ->
             "provider": provider,
             "base_url": (base_url or "").strip(),
             "model": (model_name or "").strip(),
-            "api_key": (api_key or "").strip() or stored_key,
+            "api_key": "" if is_local_ollama(base_url) else ((api_key or "").strip() or stored_key),
         })
         _write_config(data)
     return f"已保存配置到 {CONFIG_PATH.name}（下次打开自动读取）"
@@ -774,23 +1525,19 @@ def _emotion_chip(name: str, prefix: str = "") -> str:
 def _render_locked_pills(segments: list[dict]) -> str:
     if not segments:
         return (
-            "<div style='padding:14px;border:1.5px dashed #cbd5e1;border-radius:12px;color:#64748b;"
-            "font-size:13px;text-align:center;'>还没有锁定片段 · 输入台词后按 <b>Enter</b> 添加</div>"
+            "<div class='sora-pill-empty'>✦ 还没有锁定片段 · 输入台词后按 <b>Enter</b> 添加</div>"
         )
     cards = []
     for idx, seg in enumerate(segments, 1):
         sec = seg.get("secondary")
         sec_badge = _emotion_chip(sec, "+") if sec else ""
-        meta = "background:#f1f5f9;color:#475569;padding:3px 8px;border-radius:999px;font-size:12px;"
         cards.append(
-            "<div style='display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:9px 12px;"
-            "margin-bottom:6px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;"
-            "box-shadow:0 1px 2px rgba(15,23,42,.04);'>"
-            f"<span style='color:#94a3b8;font-weight:700;font-size:12px;min-width:18px;'>{idx}</span>"
+            "<div class='sora-pill-row'>"
+            f"<span class='sora-pill-idx'>{idx:02d}</span>"
             f"{_emotion_chip(seg['primary'])}{sec_badge}"
-            f"<span style='{meta}'>强度 {seg['intensity']:.2f}</span>"
-            f"<span style='{meta}'>⏸ {seg['pause_s']:.2f}s</span>"
-            f"<span style='color:#0f172a;font-size:14px;margin-left:4px;flex:1;min-width:120px;'>{html.escape(seg['text'])}</span>"
+            f"<span class='sora-pill-meta'>强度 {seg['intensity']:.2f}</span>"
+            f"<span class='sora-pill-meta'>⏸ {seg['pause_s']:.2f}s</span>"
+            f"<span class='sora-pill-text'>{html.escape(seg['text'])}</span>"
             "</div>"
         )
     return "".join(cards)
@@ -1030,9 +1777,16 @@ def discuss_performance_stream(message, history, input_mode, line, context, api_
         raise gr.Error("请先配置导演 API 密钥。")
     mdl = (model or "").strip()
     try:
-        payload = json.loads(_discussion_payload(input_mode, line or "", context, turns))
+        local = is_local_ollama(url)
+        payload = json.loads(_discussion_payload(input_mode, line or "", context, turns[-8:] if local else turns))
         payload["用户已明确下达制作任务"] = production_task
-        payload["可用表演参考素材"] = _reference_notes(API_PERFORMANCE_REFS)
+        if local:
+            mentioned = [ref for ref in API_PERFORMANCE_REFS if ref in message]
+            if mentioned:
+                payload["可用表演参考素材"] = _reference_notes(mentioned)
+            payload["最新要求"] = request_text
+        else:
+            payload["可用表演参考素材"] = _reference_notes(API_PERFORMANCE_REFS)
         persona = load_sora_persona()
         discuss_sys = (
             "你是春日野穹的日语配音导演，用简洁中文与用户讨论台词和表演。"
@@ -1048,7 +1802,9 @@ def discuss_performance_stream(message, history, input_mode, line, context, api_
             "询问是否能选参考、试音建议或讨论演法都填 discuss。生成动作执行前，回复不要声称已经完成。"
             "只输出 JSON，reply 为给用户看的回复，action 为 discuss 或 generate。"
         )
-        if persona:
+        if local:
+            discuss_sys += "请直接回答最新要求，用中文给出一两句表演建议。台词示例用日语。制作阶段会从参考库选角。"
+        if persona and not local:
             discuss_sys += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
         final_result = None
         final_reply = ""
@@ -1056,13 +1812,14 @@ def discuss_performance_stream(message, history, input_mode, line, context, api_
             discuss_sys,
             _discussion_content(json.dumps(payload, ensure_ascii=False), turns, key, url, mdl),
             api_key=key, base_url=url, model=mdl,
+            schema=director_json_schema(reply=DIRECTOR_STRING, action={"enum": ["discuss", "generate"]}),
         ):
             if partial_reply:
                 final_reply = partial_reply
                 yield [*turns, {"role": "assistant", "content": partial_reply}], None
             if parsed is not None:
                 final_result = parsed
-        reply = (final_result["reply"].strip() if final_result else final_reply.strip())
+        reply = (final_result or {}).get("reply", final_reply).strip()
         if not reply or final_result is None:
             raise ValueError("empty reply")
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
@@ -1077,7 +1834,7 @@ def _render_progress(pct: float, desc: str) -> str:
     safe_desc = html.escape(desc or "正在合成…")
     return (
         "<div class='sora-prog-card'>"
-        f"<div class='sora-prog-head'><span>{safe_desc}</span><span>{p}%</span></div>"
+        f"<div class='sora-prog-head'><span class='sora-prog-title'>{_KURO_USAGI_ICON_SVG}<span>{safe_desc}</span></span><span>{p}%</span></div>"
         f"<div class='sora-prog-track'><div class='sora-prog-fill' style='width:{p}%'></div></div>"
         "</div>"
     )
@@ -1228,12 +1985,17 @@ def _finish_discussion(input_mode, line, context, history, key, base_url, model)
             "表演说明包含有共识的语气、节奏和拟声意图。保留用户明确确认的参考编号或选取偏好，交给后续参考排序。"
             "只输出 JSON。ja_text 为最终日语台词，zh_text 为这份日语台词的自然中文译文，context 为中文表演说明，三个字段均为字符串。"
         )
-        if persona:
+        local = is_local_ollama(base_url)
+        if local:
+            finish_sys += "ja_text 只填要念的日语句子，例如「もう……遅いよ。」。把解释放在 context，禁止把用户指令、中文或 Markdown 放入 ja_text。"
+        if persona and not local:
             finish_sys += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
+        recent = history[-8:] if local else history
         result = deepseek_json(
             finish_sys,
-            _discussion_content(_discussion_payload(input_mode, line, context, history), history, key, base_url, model),
+            _discussion_content(_discussion_payload(input_mode, line, context, recent), history, key, base_url, model),
             api_key=key, base_url=base_url, model=model, operation="讨论定稿",
+            schema=director_json_schema(ja_text=DIRECTOR_STRING, zh_text=DIRECTOR_STRING, context=DIRECTOR_STRING),
         )
         ja_line = " ".join(result["ja_text"].splitlines()).strip()
         brief = result["context"].strip()
@@ -1241,6 +2003,8 @@ def _finish_discussion(input_mode, line, context, history, key, base_url, model)
         translation = translation.strip() if isinstance(translation, str) else ""
         if not ja_line:
             raise ValueError("empty line")
+        if local and not re.search(r"[ぁ-ゖァ-ヺ]", ja_line) and ja_line != (line or "").strip():
+            raise gr.Error("本地导演没有给出可合成的日语台词，请要求它重写为日语后再生成。")
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as exc:
         raise gr.Error(f"导演未能定稿，请检查 API 配置后重试（{type(exc).__name__}）。") from exc
     return ja_line, "\n".join(part for part in (context, brief) if part), translation
@@ -1610,7 +2374,10 @@ def synthesize_action(
             if api_key_for_rank:
                 try:
                     _prog(0.30, "🎯 正在由导演从 63 档声学参考中选角…")
-                    pool = build_candidate_pool_for_api(synth_text, synth_plan, API_PERFORMANCE_REFS)
+                    if is_local_ollama(burl):
+                        pool = build_candidate_pool_for_api(synth_text, synth_plan, API_PERFORMANCE_REFS, max_pool=max(8, count + 2))
+                    else:
+                        pool = build_candidate_pool_for_api(synth_text, synth_plan, API_PERFORMANCE_REFS)
                     if len(pool) < count:
                         raise ValueError("可用参考数量不足")
                     api_overview, reasons = rank_references_with_deepseek(
@@ -1933,9 +2700,31 @@ def iterate_to_goal(
     yield output(best[1], "\n".join([*notes, "已到轮次上限，试听区保留评分最高的一版。"]))
 
 
+def _ollama_models(current_model):
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_DIRECTOR_URL}/models", timeout=2) as response:
+            models = sorted({item["id"] for item in json.load(response)["data"]})
+    except (OSError, ValueError, KeyError, TypeError):
+        return gr.update(choices=[], value=current_model), "未连到 Ollama。请打开 Ollama 后重新检测。"
+    if not models:
+        return gr.update(choices=[], value=None), "Ollama 已连接。请先在 Ollama 下载一个本地模型，再重新检测。"
+    selected = current_model if current_model in models else models[0]
+    return gr.update(choices=models, value=selected), f"Ollama 已连接，找到 {len(models)} 个模型。"
+
+
 def on_provider_change(provider_name: str):
-    url, mdl = PROVIDER_PRESETS.get(provider_name, ("", ""))
-    return url, mdl
+    url, model = PROVIDER_PRESETS.get(provider_name, ("", ""))
+    local = provider_name == OLLAMA_PROVIDER
+    model_update, status = _ollama_models(None) if local else (gr.update(choices=[], value=model), "")
+    return (gr.update(value=url, interactive=not local), model_update,
+            gr.update(value="", visible=not local), gr.update(visible=local),
+            gr.update(value=status, visible=local))
+
+
+def _refresh_ollama_models(provider_name, current_model):
+    if provider_name != OLLAMA_PROVIDER:
+        return gr.skip(), gr.skip()
+    return _ollama_models(current_model)
 
 
 def _archive_menu(active):
@@ -2158,10 +2947,15 @@ def build_ui() -> gr.Blocks:
     with gr.Blocks(title="春日野穹 · 表演向语音合成", theme=UI_THEME, css=UI_CSS) as demo:
         gr.HTML(UI_HERO)
         with gr.Row(equal_height=False):
-            # ───────────── 左侧：台词输入 + 生成结果 ─────────────
-            with gr.Column(scale=7, min_width=520):
+            # ───────────── 左侧：台词剧本 + 苍穹声场回放 ─────────────
+            with gr.Column(scale=7, min_width=480):
                 with gr.Group(elem_classes="sora-card"):
-                    gr.HTML("<div class='sora-section'>📝 台词</div>")
+                    _chibi_write_img = (
+                        f"<img src='{_CHIBI_WRITE_URI}' class='sora-chibi-float' alt='' />"
+                        if _CHIBI_WRITE_URI
+                        else ""
+                    )
+                    gr.HTML(f"<div class='sora-section sora-section-chibi'>✦ 台词脚本 <span class='sec-sub'>SCRIPT</span>{_chibi_write_img}</div>")
                     line_box = gr.Textbox(
                         label="台词（中文或日语）", show_label=False,
                         placeholder="输入台词，例如：你怎么才回来啊…… ／ 別に、待ってたわけじゃないよ。",
@@ -2170,27 +2964,43 @@ def build_ui() -> gr.Blocks:
                     ctx_box = gr.Textbox(
                         label="剧情 / 语气上下文（可选，帮导演判断潜台词）",
                         placeholder="例如：等了很久终于等到对方回来，嘴上先责怪，后半句松一口气。",
-                        lines=2, max_lines=6,
+                        lines=2, max_lines=5,
                     )
-                    input_mode = gr.Radio(
-                        choices=["自动识别", "中文", "日语"], value="自动识别",
-                        label="台词语言",
-                        info="有假名按日语直接合成；只有汉字的日语请选「日语」。",
-                    )
-                    long_monologue_mode = gr.Checkbox(
-                        label="📜 长独白分句稳态接续（>75字多句长文自动按句拆批合成，防越念越快或跑调）",
-                        value=True,
-                    )
-                gen_btn = gr.Button("✨ 按左栏台词生成语音", variant="primary", size="lg", elem_id="sora-gen-btn")
+                    with gr.Row(elem_classes="sora-inline-bar"):
+                        input_mode = gr.Radio(
+                            choices=["自动识别", "中文", "日语"], value="自动识别",
+                            label="台词语言",
+                            info="有假名按日语合成；纯汉字日语请选「日语」。",
+                            scale=3,
+                        )
+                        long_monologue_mode = gr.Checkbox(
+                            label="📜 长独白分句稳态接续（>75字自动拆批）",
+                            value=True,
+                            scale=2,
+                        )
+                gen_btn = gr.Button("🎀 唤起穹的声音 · 按左栏台词生成", variant="primary", size="lg", elem_id="sora-gen-btn")
                 synth_progress = gr.HTML(visible=False)
 
                 with gr.Group(elem_classes="sora-card"):
-                    gr.HTML("<div class='sora-section'>🎧 生成结果</div>")
-                    audio_out = gr.Audio(label="生成结果试听", type="filepath", interactive=False, autoplay=True)
+                    _chibi_img = (
+                        f"<img src='{_CHIBI_STICKER_URI}' class='sora-chibi-float' alt='' />"
+                        if _CHIBI_STICKER_URI
+                        else ""
+                    )
+                    gr.HTML(f"<div class='sora-section sora-section-chibi'>✦ 声场试听 <span class='sec-sub'>PLAYBACK</span>{_chibi_img}</div>")
+                    audio_out = gr.Audio(
+                        label="生成结果试听", type="filepath", interactive=False,
+                        autoplay=True, elem_classes="sora-audio-box",
+                    )
                     with gr.Row():
-                        generated_zh = gr.Textbox(label="台词 · 中文", lines=2, interactive=False)
-                        generated_ja = gr.Textbox(label="台词 · 日文", lines=2, interactive=False)
-                    status_out = gr.Textbox(label="运行详情", lines=5, max_lines=14, interactive=False)
+                        generated_zh = gr.Textbox(label="双语字幕 · 中文", lines=2, interactive=False)
+                        generated_ja = gr.Textbox(label="双语字幕 · 日文", lines=2, interactive=False)
+                    status_out = gr.Textbox(label="声场与运行详情", lines=4, max_lines=12, interactive=False)
+                    with gr.Accordion("🎚️ 整句备选试听（展开对比备选与起始版本）", open=False, elem_classes="sora-acc"):
+                        with gr.Row():
+                            alternate_one = gr.Audio(label="备选 1", type="filepath", interactive=False, elem_classes="sora-audio-box")
+                            alternate_two = gr.Audio(label="备选 2", type="filepath", interactive=False, elem_classes="sora-audio-box")
+                            goal_baseline = gr.Audio(label="起始版本对比", type="filepath", interactive=False, visible=False, elem_classes="sora-audio-box")
                     with gr.Accordion("🏷️ 标记效果与错题反馈（用于模型自优化升级）", open=False, elem_classes="sora-acc"):
                         feedback_tags = gr.CheckboxGroup(
                             choices=ERROR_TAG_CHOICES,
@@ -2202,285 +3012,291 @@ def build_ui() -> gr.Blocks:
                             lines=1,
                         )
                         with gr.Row():
-                            fb_good_btn = gr.Button("👍 这条不错（正样本）", size="sm")
-                            fb_bad_btn = gr.Button("🏷️ 记入错题并降权", size="sm", variant="stop")
+                            fb_good_btn = gr.Button("👍 这条不错（正样本）", size="sm", elem_classes="sora-fb-good")
+                            fb_bad_btn = gr.Button("🏷️ 记入错题并降权", size="sm", variant="stop", elem_classes="sora-fb-bad")
                         feedback_status = gr.Textbox(label="反馈状态", lines=1, interactive=False)
 
-                with gr.Accordion("🎚️ 整句备选试听（展开对比备选与起始版本）", open=False, elem_classes="sora-acc"):
+            # ───────────── 右侧：导演与调音控制台 ─────────────
+            with gr.Column(scale=5, min_width=390):
+                with gr.Group(elem_classes="sora-studio-panel"):
+                    with gr.Tabs(elem_classes="sora-tabs"):
+                        with gr.Tab("✦ 导演对话"):
+                            saved_chats = ARCHIVE.list_chats()
+                            active_chat = saved_chats[0][1] if saved_chats else ARCHIVE.new_chat()
+                            conversation_id = gr.State(active_chat)
+                            with gr.Row(equal_height=True):
+                                conversation_menu = gr.Dropdown(
+                                    choices=saved_chats or [("新对话", active_chat)], value=active_chat,
+                                    label="聊天历史", show_label=False, interactive=True, scale=4, container=False,
+                                )
+                                new_conversation = gr.Button("＋ 新对话", size="sm", scale=1, min_width=90)
+                            director_chat = gr.Chatbot(
+                                label="导演对话", show_label=False, type="messages", height=400,
+                                value=ARCHIVE.load_chat(active_chat), elem_classes="sora-chat",
+                            )
+                            director_message = gr.MultimodalTextbox(
+                                label="给导演的话", show_label=False, lines=2, file_types=sorted(ATTACHMENT_TYPES),
+                                file_count="multiple", submit_btn=False,
+                                placeholder="例如：给我做一段雨夜重逢的语音，剧情和日语台词你来定。（Enter 发送）",
+                            )
+                            with gr.Row(equal_height=True):
+                                director_execution = gr.Dropdown(
+                                    choices=[("🔒 审批后生成", "审批后生成"), ("⚡ 全自动", "全自动")],
+                                    value="审批后生成", label="导演执行方式", show_label=False,
+                                    container=False, allow_custom_value=False, scale=2, min_width=130,
+                                )
+                                director_goal_mode = gr.Checkbox(label="🎯 目标模式", container=False, scale=1, min_width=100)
+                            with gr.Group(visible=False, elem_classes="sora-subcard") as goal_opts_group:
+                                with gr.Row():
+                                    goal_rounds = gr.Slider(1, 8, value=3, step=1, label="目标模式最多生成轮数")
+                                    goal_use_current = gr.Checkbox(label="先评审当前成品", value=False)
+                            with gr.Row():
+                                director_send = gr.Button("💬 发送", size="sm")
+                                director_task = gr.Button("📋 下达制作任务", size="sm")
+                                director_generate = gr.Button("🎙️ 按讨论生成", variant="primary", size="sm", elem_classes="sora-art-primary")
+                            goal_status = gr.Textbox(label="目标评审", lines=3, interactive=False, visible=False)
+
+                        with gr.Tab("🎀 情绪控制"):
+                            with gr.Group(elem_classes="sora-subcard"):
+                                gr.HTML("<div class='sora-section'>✦ 穹式风格预设 <span class='sec-sub'>PRESETS</span></div>")
+                                with gr.Row(elem_classes="sora-preset-row"):
+                                    preset_daily_btn = gr.Button("🌿 日常自然", size="sm", elem_classes="sora-preset-daily")
+                                    preset_clingy_btn = gr.Button("🎀 撒娇粘人", size="sm", elem_classes="sora-preset-clingy")
+                                with gr.Row(elem_classes="sora-preset-row"):
+                                    preset_tsun_btn = gr.Button("🖤 冷淡不耐", size="sm", elem_classes="sora-preset-tsun")
+                                    preset_asmr_btn = gr.Button("🌙 近耳哄睡 ASMR", size="sm", variant="primary", elem_classes="sora-preset-asmr")
+                                preset_hint = gr.Textbox(label="预设状态", lines=2, interactive=False, value="提示：点击上方预设可一键配好整套情绪与耳语/音景参数，或继续微调。")
+                            plan_mode = gr.Radio(
+                                choices=[
+                                    "自动导演 (API 大模型)",
+                                    "自动导演 (本地 Ollama)",
+                                    "手动指定整句情绪",
+                                    "使用下方锁定标签片段",
+                                    "使用下方分段 JSON",
+                                ],
+                                value="自动导演 (API 大模型)",
+                                label="情绪控制方式",
+                                elem_classes="sora-radio-stack",
+                            )
+                            with gr.Group(visible=False, elem_classes="sora-subcard") as manual_group:
+                                with gr.Row():
+                                    manual_primary = gr.Dropdown(
+                                        choices=EMOTION_LABELS, value="tender", label="主情绪"
+                                    )
+                                    manual_secondary = gr.Dropdown(
+                                        choices=SECONDARY_LABELS, value="none", label="次情绪"
+                                    )
+                                with gr.Row():
+                                    manual_intensity = gr.Slider(
+                                        0.1, 0.95, value=0.65, step=0.05, label="情绪强度"
+                                    )
+                                    manual_pause = gr.Slider(
+                                        0.0, 1.2, value=0.4, step=0.05, label="锁定段后停顿 (秒)"
+                                    )
+                            with gr.Group(visible=False, elem_classes="sora-subcard") as locked_group:
+                                gr.HTML("<div class='sora-hint'>🏷️ 输入一小句台词后按回车，自动带入上方情绪、强度与停顿，像标签一样锁定（翻译不会改动标签）。</div>")
+                                locked_state = gr.State([])
+                                seg_input = gr.Textbox(
+                                    label="锁定片段", show_label=False,
+                                    placeholder="例如：你怎么才回来啊……（输完直接按 Enter）",
+                                )
+                                with gr.Row():
+                                    add_seg_btn = gr.Button("＋ 锁定", size="sm", variant="primary")
+                                    pop_seg_btn = gr.Button("↶ 撤销", size="sm")
+                                    clear_seg_btn = gr.Button("🗑 清空", size="sm", variant="stop")
+                                locked_preview = gr.HTML(value=_render_locked_pills([]))
+                            with gr.Accordion("📝 情绪分段 JSON（微调后选「使用下方分段 JSON」生效）", open=False, elem_classes="sora-acc") as json_acc:
+                                plan_json_box = gr.Code(
+                                    label="情绪分段 JSON",
+                                    show_label=False,
+                                    language="json",
+                                    lines=10,
+                                )
+
+                        with gr.Tab("🌙 声音效果"):
+                            gr.HTML("<div class='sora-tab-banner sora-banner-fx'><div class='tb-title'>🌙 苍穹声学与贴耳音景</div><div class='tb-sub'>轻语 ASMR · KU100 近讲方位 · 雨夜环境音场</div></div>")
+                            director_auto_fx = gr.Checkbox(
+                                label="🤖 由导演自动启用轻语、去刺耳与局部颤音",
+                                value=True,
+                                info="DeepSeek 规划出贴耳轻语或局部颤音/重音时，自动打开下面对应开关。",
+                            )
+                            with gr.Group(elem_classes="sora-subcard"):
+                                whisper_mode = gr.Checkbox(
+                                    label="🌙 贴耳轻语模式（ASMR）",
+                                    value=False,
+                                    info="切换 ASMR 洗净权重 ep5 + 低气泡音参考 ASMR_0290，并自动限制过重的负向控制。",
+                                )
+                                declick_deess = gr.Checkbox(
+                                    label="🪶 轻度去刺耳（De-click + De-ess）",
+                                    value=False,
+                                    info="柔化清辅音尖刺与高频嘶声，保留元音和气声。",
+                                )
+                                local_delivery = gr.Checkbox(
+                                    label="〰️ 局部音高、响度与颤声（试验）",
+                                    value=False,
+                                    info="按导演规划对指定字词做局部音高/响度/颤声后处理。",
+                                )
+                            with gr.Accordion("🏞️ 48kHz 双声道贴耳方位与环境音景（ASMR 可选）", open=False, elem_classes="sora-acc"):
+                                ear_pan = gr.Dropdown(
+                                    choices=[
+                                        ("🤖 跟随导演自动", "auto"),
+                                        ("🔇 标准普通距离", "off"),
+                                        ("🎧 正中贴耳吹气", "center"),
+                                        ("👈 左耳贴耳吹气", "left"),
+                                        ("👉 右耳贴耳吹气", "right"),
+                                        ("🔄 按句左右耳交替", "alternate"),
+                                    ],
+                                    value="auto",
+                                    label="人头麦贴耳方位与近讲吹气感（KU100 近讲气流共鸣）",
+                                )
+                                ambient_bed = gr.Dropdown(
+                                    choices=[
+                                        ("🤖 跟随导演自动", "auto"),
+                                        ("🔇 无环境音", "none"),
+                                        ("🌧️ 窗外雨声", "rain"),
+                                    ],
+                                    value="auto",
+                                    label="持续环境背景音",
+                                )
+                                foley_mode = gr.State("none")
+                                ambient_level = gr.Slider(
+                                    0.05, 0.45, value=0.18, step=0.02,
+                                    label="环境音音量比例",
+                                    info="保持默认 0.18 且开启导演自动时，由导演按雨势/轻语自动调节；手动拖动后优先按你的数值。",
+                                )
+                        with gr.Tab("◇ 高级调音"):
+                            gr.HTML("<div class='sora-tab-banner sora-banner-adv'><div class='tb-title'>◇ 声线参考与律动微调</div><div class='tb-sub'>63 档原声参考匹配 · 情绪倍率与呼吸语速细调</div></div>")
+                            ref_mode = gr.Radio(
+                                choices=[
+                                    AUTO_PERFORMANCE,
+                                    "固定平静参考 SR011455 (最稳)",
+                                    "按情绪自动匹配原声参考 (张力更强)",
+                                ],
+                                value=AUTO_PERFORMANCE,
+                                label="参考音频策略",
+                                elem_classes="sora-radio-stack",
+                            )
+                            with gr.Row():
+                                candidate_count = gr.Slider(
+                                    minimum=1, maximum=3, step=1, value=2,
+                                    label="整句试音数量",
+                                    info="每条 GPT 参考各生成一版，备选在左侧试听。",
+                                )
+                                api_reference_ranking = gr.Checkbox(
+                                    value=True, label="API 导演辅助选参考",
+                                    info="结合原声台词与历史标注给候选排序。",
+                                )
+                            with gr.Row():
+                                emo_scale_mode = gr.Radio(
+                                    choices=["自动动态上限", "手动固定倍率"],
+                                    value="自动动态上限",
+                                    label="情绪倍率 emo_scale",
+                                )
+                                emo_scale_val = gr.Slider(
+                                    1.0, 1.7, value=1.35, step=0.05, label="手动倍率", interactive=False,
+                                )
+                            with gr.Row():
+                                temperature = gr.Slider(0.5, 1.2, value=0.9, step=0.05, label="temperature")
+                                top_k = gr.Slider(5, 30, value=10, step=1, label="top_k")
+                                speed_factor = gr.Slider(0.90, 1.12, value=1.00, step=0.02, label="语速微调", info="仅建议微调，防破坏原生呼吸节奏")
+
+        # ───────────── 底部：音频库 / 自优化 / API 设置 ─────────────
+        with gr.Group(elem_classes="sora-dock"):
+            with gr.Tabs(elem_classes="sora-tabs"):
+                with gr.Tab("✦ 音频库与记录"):
+                    with gr.Row(equal_height=False, elem_classes="sora-align-end"):
+                        library_scope = gr.Dropdown(
+                            choices=["⭐ 主选成品", "当前对话", "全部音频（含备选）", "全部记录"],
+                            value="⭐ 主选成品",
+                            label="筛选范围", scale=2,
+                        )
+                        library_entry = gr.Dropdown(label="快速检索（按台词与时间展示）", interactive=True, scale=5)
+                        library_refresh = gr.Button("↻ 刷新列表", size="sm", scale=1, min_width=96)
+                    with gr.Row(equal_height=False):
+                        with gr.Column(scale=7):
+                            library_table = gr.Dataframe(
+                                headers=["ID", "时间", "类型", "中文台词", "日文台词", "保存文件名"],
+                                datatype=["str", "str", "str", "str", "str", "str"],
+                                interactive=False,
+                                wrap=True,
+                                label="生成记录列表（点击任意一行即可右侧试听）",
+                                elem_classes="sora-table",
+                            )
+                        with gr.Column(scale=5):
+                            library_audio = gr.Audio(label="库内试听", type="filepath", interactive=False, elem_classes="sora-audio-box")
+                            library_detail = gr.Textbox(label="完整记录详情与文件名", lines=6, interactive=False)
+                            with gr.Row():
+                                lib_load_btn = gr.Button("📥 载入台词重制", size="sm")
+                                lib_good_btn = gr.Button("👍 标为正样本", size="sm", elem_classes="sora-fb-good")
+                                lib_del_btn = gr.Button("🗑️ 删除此记录", size="sm", variant="stop")
+                            lib_action_msg = gr.Textbox(label="操作提示", lines=1, interactive=False)
+
+                with gr.Tab("◇ 自优化升级"):
+                    gr.HTML("<div class='sora-tab-banner sora-banner-selfopt'><div class='tb-title'>◇ 穹声线自优化笔记 · SELF-OPTIMIZATION</div><div class='tb-sub'>结合历史生成记录与人工正负样本反馈，动态优化参考音优先级并支持本地 GPU 小步对比微调（自带出厂备份可一键回滚）。</div></div>")
+                    self_opt_report = gr.Textbox(
+                        label="当前自优化与错误标签权重状态",
+                        value=lambda: format_self_opt_report(load_adaptive_weights()),
+                        lines=7,
+                        interactive=False,
+                    )
                     with gr.Row():
-                        alternate_one = gr.Audio(label="备选 1", type="filepath", interactive=False)
-                        alternate_two = gr.Audio(label="备选 2", type="filepath", interactive=False)
-                        goal_baseline = gr.Audio(label="起始版本对比", type="filepath", interactive=False, visible=False)
+                        opt_recompute_btn = gr.Button("📊 汇总记录并更新参考音评分", size="sm")
+                        opt_train_btn = gr.Button("🧬 立即微调内部权重 (24步)", variant="primary", size="sm", elem_classes="sora-art-primary")
+                        opt_reset_btn = gr.Button("↩️ 恢复出厂默认权重", variant="stop", size="sm")
 
-            # ───────────── 右侧：分页控制面板 ─────────────
-            with gr.Column(scale=5, min_width=420):
-                with gr.Tabs(elem_classes="sora-tabs"):
-                    with gr.Tab("🎬 导演对话"):
-                        saved_chats = ARCHIVE.list_chats()
-                        active_chat = saved_chats[0][1] if saved_chats else ARCHIVE.new_chat()
-                        conversation_id = gr.State(active_chat)
-                        with gr.Row(equal_height=True):
-                            conversation_menu = gr.Dropdown(
-                                choices=saved_chats or [("新对话", active_chat)], value=active_chat,
-                                label="聊天历史", show_label=False, interactive=True, scale=4, container=False,
-                            )
-                            new_conversation = gr.Button("＋ 新对话", size="sm", scale=1, min_width=90)
-                        director_chat = gr.Chatbot(
-                            label="导演对话", show_label=False, type="messages", height=380,
-                            value=ARCHIVE.load_chat(active_chat), elem_classes="sora-chat",
+                with gr.Tab("✦ API 设置"):
+                    gr.HTML("<div class='sora-tab-banner sora-banner-api'><div class='tb-title'>✦ 导演与评审接口配置 · API SETTINGS</div><div class='tb-sub'>配置潜台词编排大模型（DeepSeek / OpenAI 兼容）与目标模式 WAV 音频评审接口，密钥仅保存在本地配置中。</div></div>")
+                    gr.HTML("<div class='sora-section'>✦ 导演模型 <span class='sec-sub'>DIRECTOR LLM</span></div>")
+                    with gr.Row():
+                        provider_box = gr.Dropdown(
+                            choices=list(PROVIDER_PRESETS.keys()),
+                            value=default_provider,
+                            label="模型厂商预设",
                         )
-                        director_message = gr.MultimodalTextbox(
-                            label="给导演的话", show_label=False, lines=2, file_types=sorted(ATTACHMENT_TYPES),
-                            file_count="multiple", submit_btn=False,
-                            placeholder="例如：给我做一段雨夜重逢的语音，剧情和日语台词你来定。（Enter 发送）",
+                        model_box = gr.Dropdown(
+                            choices=[default_mdl] if default_mdl else [],
+                            allow_custom_value=True,
+                            label="模型名 (Model)",
+                            value=default_mdl,
+
                         )
-                        with gr.Row(equal_height=True):
-                            director_execution = gr.Dropdown(
-                                choices=[("🔒 审批后生成", "审批后生成"), ("⚡ 全自动", "全自动")],
-                                value="审批后生成", label="导演执行方式", show_label=False,
-                                container=False, allow_custom_value=False, scale=2, min_width=130,
-                            )
-                            director_goal_mode = gr.Checkbox(label="🎯 目标模式", container=False, scale=1, min_width=100)
-                        with gr.Group(visible=False, elem_classes="sora-subcard") as goal_opts_group:
-                            with gr.Row():
-                                goal_rounds = gr.Slider(1, 8, value=3, step=1, label="目标模式最多生成轮数")
-                                goal_use_current = gr.Checkbox(label="先评审当前成品", value=False)
-                        with gr.Row():
-                            director_send = gr.Button("💬 发送", size="sm")
-                            director_task = gr.Button("📋 下达制作任务", size="sm")
-                            director_generate = gr.Button("🎙️ 按右侧讨论生成", variant="primary", size="sm")
-                        goal_status = gr.Textbox(label="目标评审", lines=3, interactive=False, visible=False)
-
-                    with gr.Tab("🎭 情绪控制"):
-                        with gr.Group(elem_classes="sora-subcard"):
-                            gr.HTML("<div class='sora-section'>⚡ 风格一键预设（同时联动情绪与音效）</div>")
-                            with gr.Row():
-                                preset_daily_btn = gr.Button("🌿 日常自然", size="sm")
-                                preset_clingy_btn = gr.Button("🌸 撒娇粘人", size="sm")
-                                preset_tsun_btn = gr.Button("😒 冷淡不耐", size="sm")
-                                preset_asmr_btn = gr.Button("🌙 近耳哄睡 ASMR", size="sm", variant="primary")
-                            preset_hint = gr.Textbox(label="预设状态", lines=1, interactive=False, value="提示：点击上方预设可一键配好整套情绪与耳语/音景参数，或继续微调。")
-                        plan_mode = gr.Radio(
-                            choices=[
-                                "自动导演 (API 大模型)",
-                                "自动导演 (本地 Ollama)",
-                                "手动指定整句情绪",
-                                "使用下方锁定标签片段",
-                                "使用下方分段 JSON",
-                            ],
-                            value="自动导演 (API 大模型)",
-                            label="情绪控制方式",
-                            elem_classes="sora-radio-stack",
+                        base_url_box = gr.Textbox(
+                            label="API Base URL",
+                            value=default_url,
+                            placeholder="https://api.deepseek.com",
+                            interactive=default_provider != OLLAMA_PROVIDER,
                         )
-                        with gr.Group(visible=False, elem_classes="sora-subcard") as manual_group:
-                            with gr.Row():
-                                manual_primary = gr.Dropdown(
-                                    choices=EMOTION_LABELS, value="tender", label="主情绪"
-                                )
-                                manual_secondary = gr.Dropdown(
-                                    choices=SECONDARY_LABELS, value="none", label="次情绪"
-                                )
-                            with gr.Row():
-                                manual_intensity = gr.Slider(
-                                    0.1, 0.95, value=0.65, step=0.05, label="情绪强度"
-                                )
-                                manual_pause = gr.Slider(
-                                    0.0, 1.2, value=0.4, step=0.05, label="锁定段后停顿 (秒)"
-                                )
-                        with gr.Group(visible=False, elem_classes="sora-subcard") as locked_group:
-                            gr.HTML("<div class='sora-hint'>🏷️ 输入一小句台词后按回车，自动带入上方情绪、强度与停顿，像标签一样锁定（翻译不会改动标签）。</div>")
-                            locked_state = gr.State([])
-                            seg_input = gr.Textbox(
-                                label="锁定片段", show_label=False,
-                                placeholder="例如：你怎么才回来啊……（输完直接按 Enter）",
-                            )
-                            with gr.Row():
-                                add_seg_btn = gr.Button("＋ 锁定", size="sm", variant="primary")
-                                pop_seg_btn = gr.Button("↶ 撤销", size="sm")
-                                clear_seg_btn = gr.Button("🗑 清空", size="sm", variant="stop")
-                            locked_preview = gr.HTML(value=_render_locked_pills([]))
-                        with gr.Accordion("📝 情绪分段 JSON（微调后选「使用下方分段 JSON」生效）", open=False, elem_classes="sora-acc") as json_acc:
-                            plan_json_box = gr.Code(
-                                label="情绪分段 JSON",
-                                show_label=False,
-                                language="json",
-                                lines=10,
-                            )
-
-                    with gr.Tab("🔊 声音效果"):
-                        director_auto_fx = gr.Checkbox(
-                            label="🤖 由导演自动启用轻语、去刺耳与局部颤音",
-                            value=True,
-                            info="DeepSeek 规划出贴耳轻语或局部颤音/重音时，自动打开下面对应开关。",
+                    with gr.Row(equal_height=False, elem_classes="sora-align-end"):
+                        api_key_box = gr.Textbox(
+                            label="API Key（留空使用当前地址已保存的密钥）",
+                            type="password",
+                            placeholder="sk-...",
+                            visible=default_provider != OLLAMA_PROVIDER,
+                            scale=4,
                         )
-                        with gr.Group(elem_classes="sora-subcard"):
-                            whisper_mode = gr.Checkbox(
-                                label="🌙 贴耳轻语模式（ASMR）",
-                                value=False,
-                                info="切换 ASMR 洗净权重 ep5 + 低气泡音参考 ASMR_0290，并自动限制过重的负向控制。",
-                            )
-                            declick_deess = gr.Checkbox(
-                                label="🪶 轻度去刺耳（De-click + De-ess）",
-                                value=False,
-                                info="柔化清辅音尖刺与高频嘶声，保留元音和气声。",
-                            )
-                            local_delivery = gr.Checkbox(
-                                label="〰️ 局部音高、响度与颤声（试验）",
-                                value=False,
-                                info="按导演规划对指定字词做局部音高/响度/颤声后处理。",
-                            )
-                        with gr.Accordion("🏞️ 48kHz 双声道贴耳方位与环境音景（ASMR 可选）", open=False, elem_classes="sora-acc"):
-                            ear_pan = gr.Dropdown(
-                                choices=[
-                                    ("🤖 跟随导演自动", "auto"),
-                                    ("🔇 标准普通距离", "off"),
-                                    ("🎧 正中贴耳吹气", "center"),
-                                    ("👈 左耳贴耳吹气", "left"),
-                                    ("👉 右耳贴耳吹气", "right"),
-                                    ("🔄 按句左右耳交替", "alternate"),
-                                ],
-                                value="auto",
-                                label="人头麦贴耳方位与近讲吹气感（KU100 近讲气流共鸣）",
-                            )
-                            ambient_bed = gr.Dropdown(
-                                choices=[
-                                    ("🤖 跟随导演自动", "auto"),
-                                    ("🔇 无环境音", "none"),
-                                    ("🌧️ 窗外雨声", "rain"),
-                                ],
-                                value="auto",
-                                label="持续环境背景音",
-                            )
-                            foley_mode = gr.State("none")
-                            ambient_level = gr.Slider(
-                                0.05, 0.45, value=0.18, step=0.02,
-                                label="环境音音量比例",
-                                info="保持默认 0.18 且开启导演自动时，由导演按雨势/轻语自动调节；手动拖动后优先按你的数值。",
-                            )
+                        refresh_ollama_btn = gr.Button("检测 Ollama 模型", visible=default_provider == OLLAMA_PROVIDER)
+                        save_cfg_btn = gr.Button("💾 保存配置", variant="primary", scale=1, min_width=120, elem_classes="sora-art-primary")
 
-                    with gr.Tab("⚙️ 高级"):
-                        ref_mode = gr.Radio(
-                            choices=[
-                                AUTO_PERFORMANCE,
-                                "固定平静参考 SR011455 (最稳)",
-                                "按情绪自动匹配原声参考 (张力更强)",
-                            ],
-                            value=AUTO_PERFORMANCE,
-                            label="参考音频策略",
-                            elem_classes="sora-radio-stack",
+                    ollama_status = gr.Markdown(visible=default_provider == OLLAMA_PROVIDER)
+                    gr.HTML("<div class='sora-section' style='margin-top:14px'>✦ 音频评审模型 <span class='sec-sub'>AUDIO JUDGE</span></div>")
+                    with gr.Row():
+                        goal_judge_provider = gr.Dropdown(
+                            choices=list(JUDGE_PRESETS), value=judge_provider, label="评审厂商预设",
                         )
-                        with gr.Row():
-                            candidate_count = gr.Slider(
-                                minimum=1, maximum=3, step=1, value=2,
-                                label="整句试音数量",
-                                info="每条 GPT 参考各生成一版，备选在左侧试听。",
-                            )
-                            api_reference_ranking = gr.Checkbox(
-                                value=True, label="API 导演辅助选参考",
-                                info="结合原声台词与历史标注给候选排序。",
-                            )
-                        with gr.Row():
-                            emo_scale_mode = gr.Radio(
-                                choices=["自动动态上限", "手动固定倍率"],
-                                value="自动动态上限",
-                                label="情绪倍率 emo_scale",
-                            )
-                            emo_scale_val = gr.Slider(
-                                1.0, 1.7, value=1.35, step=0.05, label="手动倍率", interactive=False,
-                            )
-                        with gr.Row():
-                            temperature = gr.Slider(0.5, 1.2, value=0.9, step=0.05, label="temperature")
-                            top_k = gr.Slider(5, 30, value=10, step=1, label="top_k")
-                            speed_factor = gr.Slider(0.90, 1.12, value=1.00, step=0.02, label="语速微调", info="仅建议微调，防破坏原生呼吸节奏")
-
-        # ───────────── 底部：音频库 / API 设置 ─────────────
-        with gr.Tabs(elem_classes="sora-tabs sora-bottom"):
-            with gr.Tab("🗂️ 音频库与生成记录"):
-                with gr.Row(equal_height=True):
-                    library_scope = gr.Dropdown(
-                        choices=["⭐ 主选成品", "当前对话", "全部音频（含备选）", "全部记录"],
-                        value="⭐ 主选成品",
-                        label="筛选范围", scale=2,
-                    )
-                    library_entry = gr.Dropdown(label="快速检索（按台词与时间展示）", interactive=True, scale=5)
-                    library_refresh = gr.Button("🔄 刷新", size="sm", scale=1, min_width=80)
-                with gr.Row(equal_height=False):
-                    with gr.Column(scale=7):
-                        library_table = gr.Dataframe(
-                            headers=["ID", "时间", "类型", "中文台词", "日文台词", "保存文件名"],
-                            datatype=["str", "str", "str", "str", "str", "str"],
-                            interactive=False,
-                            wrap=True,
-                            label="生成记录列表（点击任意一行即可右侧试听）",
+                        goal_judge_model = gr.Textbox(
+                            label="评审模型", value=judge_cfg.get("model", judge_default_model),
+                            info="模型和接口须支持 WAV 音频输入。",
                         )
-                    with gr.Column(scale=5):
-                        library_audio = gr.Audio(label="库内试听", type="filepath", interactive=False)
-                        library_detail = gr.Textbox(label="完整记录详情与文件名", lines=6, interactive=False)
-                        with gr.Row():
-                            lib_load_btn = gr.Button("📥 载入台词重制", size="sm")
-                            lib_good_btn = gr.Button("👍 标为正样本", size="sm")
-                            lib_del_btn = gr.Button("🗑️ 删除此记录", size="sm", variant="stop")
-                        lib_action_msg = gr.Textbox(label="操作提示", lines=1, interactive=False)
-
-            with gr.Tab("🧬 自优化升级"):
-                gr.HTML("<div class='sora-hint'>基于生成历史、成品自动检查异常及人工错误标签，自动动态调整参考音优先级与声学防过激偏置，并可一键在本地 GPU 对内部 <code>ProsodyDirector</code> 与 <code>PerformanceAdapter</code> 权重做小步对比微调（无需联网 API，自带出厂备份可一键回滚）。</div>")
-                self_opt_report = gr.Textbox(
-                    label="当前自优化与错误标签权重状态",
-                    value=lambda: format_self_opt_report(load_adaptive_weights()),
-                    lines=7,
-                    interactive=False,
-                )
-                with gr.Row():
-                    opt_recompute_btn = gr.Button("📊 汇总记录并更新参考音评分", size="sm")
-                    opt_train_btn = gr.Button("🧬 立即微调内部权重 (24步)", variant="primary", size="sm")
-                    opt_reset_btn = gr.Button("↩️ 恢复出厂默认权重", variant="stop", size="sm")
-
-            with gr.Tab("🔑 API 设置"):
-                gr.HTML("<div class='sora-section'>导演模型（DeepSeek / OpenAI 兼容）</div>")
-                with gr.Row():
-                    provider_box = gr.Dropdown(
-                        choices=list(PROVIDER_PRESETS.keys()),
-                        value=default_provider,
-                        label="模型厂商预设",
-                    )
-                    model_box = gr.Textbox(
-                        label="模型名 (Model)",
-                        value=default_mdl,
-                        placeholder="deepseek-chat / gpt-4o-mini / qwen-plus",
-                    )
-                    base_url_box = gr.Textbox(
-                        label="API Base URL",
-                        value=default_url,
-                        placeholder="https://api.deepseek.com",
-                    )
-                with gr.Row(equal_height=True):
-                    api_key_box = gr.Textbox(
-                        label="API Key（留空使用当前地址已保存的密钥）",
-                        type="password",
-                        placeholder="sk-...",
-                        scale=4,
-                    )
-                    save_cfg_btn = gr.Button("💾 保存配置", variant="primary", scale=1, min_width=110)
-
-                gr.HTML("<div class='sora-section' style='margin-top:14px'>音频评审模型（目标模式用）</div>")
-                with gr.Row():
-                    goal_judge_provider = gr.Dropdown(
-                        choices=list(JUDGE_PRESETS), value=judge_provider, label="评审厂商预设",
-                    )
-                    goal_judge_model = gr.Textbox(
-                        label="评审模型", value=judge_cfg.get("model", judge_default_model),
-                        info="模型和接口须支持 WAV 音频输入。",
-                    )
-                    goal_judge_url = gr.Textbox(
-                        label="评审 API Base URL", value=judge_cfg.get("base_url", judge_default_url),
-                    )
-                with gr.Row(equal_height=True):
-                    goal_judge_key = gr.Textbox(
-                        label="评审 API Key（留空使用当前地址已保存的密钥）", type="password",
-                        info="评审会把生成的 WAV 发送到此处配置的接口。", scale=4,
-                    )
-                    save_judge_btn = gr.Button("💾 保存评审配置", variant="primary", scale=1, min_width=110)
-                api_save_status = gr.Textbox(label="配置保存状态", lines=1, interactive=False, placeholder="点击上方保存按钮后，状态会显示在这里。")
+                        goal_judge_url = gr.Textbox(
+                            label="评审 API Base URL", value=judge_cfg.get("base_url", judge_default_url),
+                        )
+                    with gr.Row(equal_height=False, elem_classes="sora-align-end"):
+                        goal_judge_key = gr.Textbox(
+                            label="评审 API Key（留空使用当前地址已保存的密钥）", type="password",
+                            info="评审会把生成的 WAV 发送到此处配置的接口。", scale=4,
+                        )
+                        save_judge_btn = gr.Button("💾 保存评审配置", variant="primary", scale=1, min_width=130, elem_classes="sora-art-primary")
+                    api_save_status = gr.Textbox(label="配置保存状态", lines=1, interactive=False, placeholder="点击上方保存按钮后，状态会显示在这里。")
 
         def _toggle_plan_mode(mode):
             manual = mode in ("手动指定整句情绪", "使用下方锁定标签片段", "使用上方锁定标签片段")
@@ -2498,8 +3314,13 @@ def build_ui() -> gr.Blocks:
         provider_box.change(
             fn=on_provider_change,
             inputs=[provider_box],
-            outputs=[base_url_box, model_box],
+            outputs=[base_url_box, model_box, api_key_box, refresh_ollama_btn, ollama_status],
         )
+        refresh_ollama_btn.click(
+            _refresh_ollama_models, inputs=[provider_box, model_box], outputs=[model_box, ollama_status],
+        )
+        if default_provider == OLLAMA_PROVIDER:
+            demo.load(_refresh_ollama_models, inputs=[provider_box, model_box], outputs=[model_box, ollama_status])
 
         goal_judge_provider.input(
             fn=on_judge_provider_change, inputs=[goal_judge_provider],
