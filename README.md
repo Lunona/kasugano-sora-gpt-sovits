@@ -41,19 +41,19 @@
 
 ## 绿色免安装整合包（推荐普通用户）
 
-绿色版内置 Python、GPT-SoVITS 环境、合成权重、参考音频与音素对齐模型。首次安装需要 **v1.0 完整包 + v1.1 更新补丁**。
+绿色版内置 Python、GPT-SoVITS 环境、合成权重、63 档声学参考和音素对齐模型。Windows 用户解压后双击 `启动穹语音生成.cmd`。
 
-1. 下载 [GitHub Release v1.0 的六个完整包分卷](https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0)，放在同一个目录后，用 7-Zip 或 Bandizip 打开 `.001` 解压。也可改从 [百度网盘下载 v1.0 完整包](https://pan.baidu.com/s/1oHZiATkQdyCzA1DN9_sJXg)，提取码 `s2ns`。
-2. 下载 [v1.1 更新补丁](https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.1)，解压覆盖到包含启动脚本、`app`、`sora` 和 `data` 的目录。已安装 v1.0 的用户直接做这一步。
-3. 双击 `启动穹语音生成.cmd`，浏览器会打开 WebUI。v1.1 绿色综合包提供 63 档声学参考。
+- **首次安装**：下载 [v2.0 完整版](https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v2.0) 的六个分卷。放在同一目录，用 7-Zip 或 Bandizip 打开 `.001` 解压，直接启动。
+- **已有 v1.0 或 v1.1**：下载 [v1.2 累计更新补丁](https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.2)，解压覆盖到包含启动脚本、`app`、`sora` 和 `data` 的目录。
+- [v1.0 完整包](https://github.com/Lunona/kasugano-sora-gpt-sovits/releases/tag/v1.0) 仍可下载。其 [百度网盘备份](https://pan.baidu.com/s/1oHZiATkQdyCzA1DN9_sJXg) 提取码为 `s2ns`。
 
 ### 本地 Ollama 导演
 
 1. 安装并打开 [Ollama](https://ollama.com/download/windows)，下载对话模型。可用 `ollama pull qwen2.5:3b` 获取已测试的模型。
-2. 在网页底部「API 设置 → 导演模型」选择「本地 Ollama」，从检测到的模型中选一个，点「保存配置」。如果刚打开 Ollama，点「检测 Ollama 模型」刷新。
-3. 右侧可继续讨论演法、下达制作任务、定稿及发起合成。审批行为由「审批后生成 / 全自动」设置决定。
+2. 在「API 设置 → 导演模型」选择「本地 Ollama」，从检测到的列表选一个模型，点「保存配置」。
+3. 左侧「情绪控制」选择「完整导演（使用已配置模型）」。右侧可讨论演法、定稿、下达制作任务。采用本地 Ollama 时，导演可以读取完整角色档案和 63 条参考资料。
 
-也可在同一位置配置 DeepSeek 或其他 OpenAI 兼容接口。若使用目标模式的自动审听，在「音频评审模型」里独立配置支持 WAV 的接口。
+同一位置也可配置 DeepSeek 或其他 OpenAI 兼容接口。目标模式的 WAV 评审在「音频评审模型」独立配置。局部变调使用随包提供的 [Praat-Parselmouth](https://github.com/YannickJadoul/Parselmouth)。
 
 ---
 

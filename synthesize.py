@@ -178,8 +178,8 @@ def adapt_controls_for_reference(controls: torch.Tensor, emo_scale: float, ref_i
         cap_delta = float(opt_w.get("emo_scale_cap_delta", 0.0))
         if cap_delta != 0.0:
             scale = max(0.85, scale + cap_delta)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[自优化] 读取柔化/倍率偏置失败（已回退默认）: {exc}", file=sys.stderr, flush=True)
 
     if whisper_mode:
         # Smooth scale attenuation instead of hard cutoff.
@@ -316,8 +316,8 @@ def pick_performance_refs(text, plan, count):
                     key=lambda idx_r: -(ref_scores.get(idx_r[1], 0.0) - idx_r[0] * 0.12),
                 )
             ]
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[自优化] 读取参考音评分失败（已回退默认排序）: {exc}", file=sys.stderr, flush=True)
     return deduped[:count], delivery
 
 
@@ -645,8 +645,8 @@ def engine(checkpoint, sovits_checkpoint=None):
         from self_optimize import load_self_optimized_models
 
         load_self_optimized_models(tts)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[自优化] 加载微调权重失败（继续使用默认权重）: {exc}", file=sys.stderr, flush=True)
     tts.set_ref_audio(str(DATA/"音频_WAV/SR011056.wav"))
     return tts
 
@@ -864,8 +864,8 @@ def render(tts, text, plan, output, conditioned=True, ref_id="SR011455", emo_sca
                     used_refs.add(info["acoustic_ref"])
                 if used_refs & flagged_refs:
                     auto_deess = True
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[自优化] 检查自动去刺耳参考列表失败: {exc}", file=sys.stderr, flush=True)
         if auto_deess:
             from acoustic_delivery import apply_light_declick_deess
 

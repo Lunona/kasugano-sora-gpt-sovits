@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
 import time
 from collections import Counter
 from pathlib import Path
@@ -94,8 +95,8 @@ def load_adaptive_weights() -> dict[str, Any]:
             loaded = json.loads(WEIGHTS_JSON.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 default.update(loaded)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[自优化] 读取 {WEIGHTS_JSON.name} 失败（已使用默认值）: {exc}", file=sys.stderr, flush=True)
     return default
 
 
@@ -105,10 +106,12 @@ def analyze_archive_and_update_weights(db_path: Path) -> dict[str, Any]:
         return state
 
     conn = sqlite3.connect(db_path)
-    rows = conn.execute(
-        "SELECT id, kind, audio, ja, zh, detail FROM events ORDER BY id ASC"
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT id, kind, audio, ja, zh, detail FROM events ORDER BY id ASC"
+        ).fetchall()
+    finally:
+        conn.close()
 
     pos_count = 0
     neg_count = 0
@@ -400,8 +403,8 @@ def load_self_optimized_models(tts) -> bool:
             sd = {k: v.to(device=device, dtype=d_dtype) for k, v in sd.items()}
             director.load_state_dict(sd, strict=False)
             loaded = True
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[自优化] 加载 {DIRECTOR_OPT_PT.name} 失败: {exc}", file=sys.stderr, flush=True)
     adapter = _get_gpt_performance_module(tts)
     if adapter is not None and ADAPTER_OPT_PT.is_file():
         try:
@@ -410,8 +413,8 @@ def load_self_optimized_models(tts) -> bool:
             sd = {k: v.to(device=device, dtype=a_dtype) for k, v in sd.items()}
             adapter.load_state_dict(sd, strict=False)
             loaded = True
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[自优化] 加载 {ADAPTER_OPT_PT.name} 失败: {exc}", file=sys.stderr, flush=True)
     return loaded
 
 

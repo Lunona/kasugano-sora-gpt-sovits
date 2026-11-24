@@ -390,10 +390,40 @@ def director_json_schema(**properties):
     return {"type": "object", "properties": properties, "required": list(properties)}
 
 
-def _director_response_format(url, schema):
-    if schema and is_local_ollama(url):
-        return {"type": "json_schema", "json_schema": {"name": "director_result", "schema": schema}}
-    return {"type": "json_object"}
+def ollama_director_chat(system, prompt, model, *, schema=None, stream=False, timeout=120, temperature=0.1):
+    message = {"role": "user", "content": prompt}
+    if isinstance(prompt, list):
+        message["content"] = "\n".join(part["text"] for part in prompt if part["type"] == "text")
+        images = [part["image_url"]["url"].split(",", 1)[1] for part in prompt if part["type"] == "image_url"]
+        if images:
+            message["images"] = images
+    payload = {
+        "model": model,
+        "messages": [{"role": "system", "content": system}, message],
+        "stream": stream,
+        "keep_alive": 0,
+        "options": {"temperature": temperature, "num_ctx": 16384, "num_predict": 2048},
+    }
+    if schema is not None:
+        payload["format"] = schema
+    request = urllib.request.Request(
+        OLLAMA_DIRECTOR_URL.removesuffix("/v1") + "/api/chat",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        if not stream:
+            yield json.load(response)
+            return
+        for raw in response:
+            chunk = json.loads(raw)
+            if chunk.get("error"):
+                raise RuntimeError(chunk["error"])
+            yield chunk
+
+
+def _ollama_usage(chunk):
+    return {"prompt_tokens": chunk.get("prompt_eval_count"), "completion_tokens": chunk.get("eval_count")}
 
 
 def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120, operation="导演请求", schema=None):
@@ -401,7 +431,8 @@ def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, ti
     import urllib.error
 
     key = api_key or os.environ.get("DEEPSEEK_API_KEY", "").strip()
-    if not key:
+    local = is_local_ollama(base_url)
+    if not key and not local:
         raise RuntimeError("DEEPSEEK_API_KEY is not set")
     url = (base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")).rstrip("/")
     if not url.endswith("/chat/completions"):
@@ -410,7 +441,7 @@ def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, ti
     payload = {
         "model": mdl,
         "temperature": 0.1,
-        "response_format": _director_response_format(url, schema),
+        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
@@ -429,10 +460,15 @@ def deepseek_json(system, prompt, *, api_key=None, base_url=None, model=None, ti
     for attempt in range(3):
         started = perf_counter()
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                body = json.loads(response.read().decode("utf-8"))
-            report_director_usage(operation, mdl, body.get("usage") if isinstance(body, dict) else None, started)
-            content = body["choices"][0]["message"]["content"]
+            if local:
+                body = next(ollama_director_chat(system, prompt, mdl, schema=schema or "json", timeout=timeout))
+                report_director_usage(operation, mdl, _ollama_usage(body), started)
+                content = body["message"]["content"]
+            else:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                report_director_usage(operation, mdl, body.get("usage"), started)
+                content = body["choices"][0]["message"]["content"]
             if not isinstance(content, str):
                 raise ValueError("Missing JSON content")
             content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.IGNORECASE)
@@ -490,7 +526,8 @@ def _extract_partial_json_reply(buf: str) -> str | None:
 def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=None, timeout=120, schema=None):
     """Stream SSE chunks from DeepSeek JSON mode, yielding (partial_reply, None) then (full_reply, parsed_dict)."""
     key = api_key or os.environ.get("DEEPSEEK_API_KEY", "").strip()
-    if not key:
+    local = is_local_ollama(base_url)
+    if not key and not local:
         raise RuntimeError("DEEPSEEK_API_KEY is not set")
     url = (base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")).rstrip("/")
     if not url.endswith("/chat/completions"):
@@ -500,7 +537,7 @@ def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=N
         "model": mdl,
         "temperature": 0.1,
         "stream": True,
-        "response_format": _director_response_format(url, schema),
+        "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
@@ -522,7 +559,11 @@ def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=N
     usage = None
     buf = []
     last_partial = ""
-    try:
+    def chunks():
+        if local:
+            for chunk in ollama_director_chat(system, prompt, mdl, schema=schema or "json", stream=True, timeout=timeout):
+                yield chunk["message"]["content"], _ollama_usage(chunk) if chunk.get("done") else None
+            return
         with urllib.request.urlopen(request, timeout=timeout) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8", errors="replace").strip()
@@ -533,19 +574,24 @@ def deepseek_json_stream(system, prompt, *, api_key=None, base_url=None, model=N
                     break
                 try:
                     chunk = json.loads(data_str)
-                    if isinstance(chunk, dict) and chunk.get("usage") is not None:
-                        usage = chunk["usage"]
-                    delta = chunk["choices"][0]["delta"].get("content") or ""
-                except (ValueError, KeyError, IndexError, TypeError):
+                    choices = chunk.get("choices") or []
+                    delta = choices[0]["delta"].get("content") if choices else None
+                    yield delta, chunk.get("usage")
+                except (ValueError, KeyError, IndexError, TypeError, AttributeError):
                     continue
-                if delta:
-                    if first_content is None:
-                        first_content = perf_counter()
-                    buf.append(delta)
-                    partial = _extract_partial_json_reply("".join(buf))
-                    if partial is not None and partial != last_partial:
-                        last_partial = partial
-                        yield partial, None
+
+    try:
+        for delta, counts in chunks():
+            if counts is not None:
+                usage = counts
+            if delta:
+                if first_content is None:
+                    first_content = perf_counter()
+                buf.append(delta)
+                partial = _extract_partial_json_reply("".join(buf))
+                if partial is not None and partial != last_partial:
+                    last_partial = partial
+                    yield partial, None
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", "".join(buf).strip(), flags=re.IGNORECASE)
         parsed = json.loads(raw)
         if not isinstance(parsed, dict) or not isinstance(parsed.get("reply"), str):
@@ -584,7 +630,7 @@ def plan_with_deepseek(text, context="", api_key=None, base_url=None, model=None
         "当台词包含较多喘息叹气（「はぁ」「ふぅ」「あっ」「んっ」）、密集气口、哭腔或贴耳轻语，需要柔化气噪与清辅音尖刺时，将 declick_deess 设为 true，否则设为 false。"
     )
     local = is_local_ollama(base_url)
-    if persona and not local:
+    if persona:
         system_prompt += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
     batch_size = 6 if local else 20
     if len(chunks) <= (batch_size if local else 25):
@@ -666,7 +712,7 @@ def rank_references_with_deepseek(text, context, plan, candidates, *, count, api
         '只输出 JSON：{"overview":"中文概括整句演法","ranking":[{"id":"候选编号","reason":"中文简述适用理由或风险"}]}。'
         "按适配度列出恰好 count 个不同候选，禁止添加未提供的编号。先给整句首选，再给有明确区别的备选。"
     )
-    if persona and not is_local_ollama(base_url):
+    if persona:
         sys_prompt += f"\n\n【春日野穹角色与配音表演基准档案】\n{persona}"
     entry_schema = director_json_schema(id={"enum": [candidate["id"] for candidate in candidates]},
                                         reason=DIRECTOR_STRING)

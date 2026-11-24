@@ -56,7 +56,7 @@ def _pitch_resynthesis(audio, rate, semitones, wet_weight=None):
     if not count:
         return audio, False
     tier = call("Create PitchTier", "local_delivery", sound.xmin, sound.xmax)
-    sample_index = np.flatnonzero(np.abs(semitones) >= 0.02)
+    sample_index = np.flatnonzero(np.abs(semitones) >= 0.08)
     if not sample_index.size:
         return audio, False
     changed = False
@@ -64,7 +64,7 @@ def _pitch_resynthesis(audio, rate, semitones, wet_weight=None):
         t = float(call(original_tier, "Get time from index", index))
         hz = float(call(original_tier, "Get value at index", index))
         amount = float(semitones[min(len(audio)-1, max(0, round(rate*t)))])
-        changed |= abs(amount) >= 0.02
+        changed |= abs(amount) >= 0.08
         call(tier, "Add point", t, hz * 2 ** (amount / 12))
     if not changed:
         return audio, False
@@ -72,7 +72,12 @@ def _pitch_resynthesis(audio, rate, semitones, wet_weight=None):
     shifted = call(manipulation, "Get resynthesis (overlap-add)").values[0].astype(np.float32)
     if shifted.shape != audio.shape or not np.isfinite(shifted).all():
         raise ValueError("Pitch resynthesis did not preserve the sample count")
-    weight = np.clip(np.abs(semitones) / 0.15, 0, 1) if wet_weight is None else wet_weight
+    if wet_weight is None:
+        # Full-wet inside active regions with short ~12ms edge crossfade to avoid dry/wet comb-filter flanging.
+        active = (np.abs(semitones) >= 0.08).astype(np.float32)
+        weight = np.clip(gaussian_filter1d(active, max(1.0, rate * 0.006), mode="constant"), 0.0, 1.0)
+    else:
+        weight = wet_weight
     return audio + (shifted - audio) * weight, True
 
 
@@ -254,8 +259,11 @@ def apply_delivery(audio, rate, text, plan, *, device="cpu"):
     pitched, pitch_applied = audio, False
     if semitones.any() or wobble.any():
         combined = curves[0] + wobble
-        wet = np.maximum(np.clip(np.abs(curves[0]) / 0.15, 0, 1), wobble_gate)
-        pitched, pitch_applied = _pitch_resynthesis(audio, rate, combined, wet)
+        # Use 100% wet inside modified spans with ~12ms boundary crossfade (never partial dry+wet flanging).
+        active = ((np.abs(semitones) >= 0.08) | (wobble_gate > 0.05)).astype(np.float32)
+        if active.any():
+            wet = np.clip(gaussian_filter1d(active, max(1.0, rate * 0.006), mode="constant"), 0.0, 1.0)
+            pitched, pitch_applied = _pitch_resynthesis(audio, rate, combined, wet)
     tremble_applied = pitch_applied and bool(wobble.any())
     pre_peak = float(np.abs(pitched).max())
     eff_db = curves[1]
@@ -525,9 +533,8 @@ def _apply_binaural_proximity(y48: np.ndarray, sr_out: int, ear_pan: str) -> np.
         for idx, (s0, s1) in enumerate(zip(splits[:-1], splits[1:])):
             out[s0:s1] = left_ear[s0:s1] if idx % 2 == 0 else right_ear[s0:s1]
         return out
-    # "center" close-mic binaural wrap (0.12ms micro-decorrelation)
-    r_micro = np.concatenate([np.zeros(6, dtype=np.float32), crisp_y[:-6]])
-    return np.stack([crisp_y, r_micro], axis=1)
+    # "center" close-mic true phase-coherent center (no fixed sample delay, avoiding 4kHz/12kHz comb notches)
+    return np.stack([crisp_y, crisp_y], axis=1)
 
 
 def mix_soundscape(
